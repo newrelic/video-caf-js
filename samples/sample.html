@@ -14,14 +14,13 @@
 
         console.log("Hello CAF Receiver!");
 
+        // Set logging level (show all messages)
         nrvideo.Log.level = nrvideo.Log.Levels.ALL;
 
-        let backend = new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY");
-        nrvideo.Core.setBackend(backend);
-        
-        let cafTracker = new nrvideo.CAFTracker();
-        nrvideo.Core.addTracker(cafTracker);
-        cafTracker.send('SAMPLE_ACTION', { "num": 1});
+        // Config New Relic Insights backend
+        nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
+        // Init CAF Tracker
+        nrvideo.Core.addTracker(new nrvideo.CAFTracker());
     </script>
 </body>
 </html>
