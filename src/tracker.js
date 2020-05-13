@@ -15,7 +15,16 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   registerListeners() {
     const playerManager = cast.framework.CastReceiverContext.getInstance().getPlayerManager()
 
+    /*
+    // This captured all events. For testing and debug purpose only.
+    playerManager.addEventListener(cast.framework.events.category.REQUEST, event => { nrvideo.Log.debug("REQUEST = ", event) })
+    playerManager.addEventListener(cast.framework.events.category.CORE, event => { nrvideo.Log.debug("CORE = ", event) })
+    playerManager.addEventListener(cast.framework.events.category.DEBUG, event => { nrvideo.Log.debug("DEBUG = ", event) })
+    playerManager.addEventListener(cast.framework.events.category.FINE, event => { nrvideo.Log.debug("FINE = ", event) })
+    */
+
     /** CORE Events */
+    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_LOAD, event => { this.onRequestLoad(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequesStop(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PAUSE, event => { this.onRequestPause(event) })
@@ -37,7 +46,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     playerManager.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
   }
 
-  /** Resets all flags and chronos. */
+  /** Reset all states. */
   reset () {
     //TODO: set flags and other stuff
   }
@@ -62,8 +71,14 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   /** CORE Events Listeners */
 
+  onRequestFocusState (ev) {
+    nrvideo.Log.debug("onRequestFocusState = ", ev)
+    this.sendPlayerReady()
+  }
+
   onRequestLoad (ev) {
     nrvideo.Log.debug("OnRequestLoad = ", ev)
+    this.sendRequest()
   }
 
   onRequestStop (ev) {
@@ -84,18 +99,32 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onBuffering (ev) {
     nrvideo.Log.debug("onBuffering  = ", ev)
+    if (ev.isBuffering) {
+      nrvideo.Log.debug("Buffer start")
+      this.sendBufferStart()
+    }
+    else {
+      nrvideo.Log.debug("Buffer end")
+      this.sendBufferEnd()
+    }
   }
 
   onError (ev) {
     nrvideo.Log.debug("onError  = ", ev)
+    //TODO: get error message from "ev"
+    this.sendError()
   }
 
   onMediaFinished (ev) {
     nrvideo.Log.debug("onMediaFinished  = ", ev)
+    this.sendEnd()
   }
 
   onPause (ev) {
     nrvideo.Log.debug("onPause  = ", ev)
+    if (!ev.ended) {
+      this.sendPause()
+    }
   }
 
   onPlayerLoading (ev) {
@@ -116,6 +145,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onPlaying (ev) {
     nrvideo.Log.debug("onPlaying  = ", ev)
+    if (this.state.isPaused) {
+      this.sendResume()
+    }
+    else {
+      this.sendStart()
+    }
   }
 
   /** DEBUG Events Listeners */
