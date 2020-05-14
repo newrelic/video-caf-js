@@ -1,7 +1,6 @@
 import * as nrvideo from 'newrelic-video-core'
 import { version } from '../package.json'
 
-//TODO: add class description
 export default class CAFTracker extends nrvideo.VideoTracker {
 
   /**
@@ -46,28 +45,104 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     playerManager.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
   }
 
-  /** Reset all states. */
-  reset () {
-    //TODO: set flags and other stuff
-  }
+  /** Tracker getters */
 
-  /**
-   * Returns tracker name.
-   * @returns {String} Tracker name.
-   */
   getTrackerName () {
     return 'caf'
   }
 
-  /**
-   * Returns tracker version. Fetched from package.
-   * @returns {String} Tracker version.
-   */
   getTrackerVersion () {
     return version
   }
 
-  //TODO: add getters
+  getVideoId () {
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation() != null) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentId
+    }
+    else {
+      return null
+    }
+  }
+
+  getPlayhead () {
+    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getCurrentTimeSec()
+  }
+
+  getDuration () {
+    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec()
+  }
+
+  getBitrate () {
+    //TODO
+  }
+
+  getFps () {
+    //TODO
+  }
+
+  getRenditionBitrate () {
+    //TODO
+  }
+
+  getRenditionName () {
+    //TODO
+  }
+
+  getRenditionWidth () {
+    //TODO
+  }
+
+  getRenditionHeight () {
+    //TODO
+  }
+
+  getTitle () {
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation() != null) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().metadata.title
+    }
+    else {
+      return null
+    }
+  }
+
+  getSrc () {
+    const mediaInfo = cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation()
+    if (mediaInfo != null) {
+      if (mediaInfo.contentUrl != undefined) {
+        return mediaInfo.contentUrl
+      }
+      else {
+        return this.getVideoId()
+      }
+    }
+    else {
+      return null
+    }
+  }
+
+  getPlayerVersion () {
+    return cast.player.api.VERSION
+  }
+
+  isMuted () {
+    return cast.framework.CastReceiverContext.getInstance().getSystemVolume().muted
+  }
+
+  getPlayrate () {
+    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getPlaybackRate()
+  }
+
+  isAutoplayed () {
+    //TODO
+  }
+
+  getPreload () {
+    //TODO
+  }
+
+  getLanguage () {
+    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getPreferredTextLanguage()
+  }
 
   /** CORE Events Listeners */
 
