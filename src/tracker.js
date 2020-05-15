@@ -206,8 +206,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onError (ev) {
     nrvideo.Log.debug("onError  = ", ev)
-    //TODO: get error message from "ev"
-    this.sendError()
+    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
   }
 
   onMediaFinished (ev) {
