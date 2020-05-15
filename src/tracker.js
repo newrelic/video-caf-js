@@ -61,10 +61,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getVideoId () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation() != null) {
+    try {
       return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentId
     }
-    else {
+    catch (e) {
       return null
     }
   }
@@ -78,10 +78,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getBitrate () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+    try {
       return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().streamBandwidth
     }
-    else {
+    catch (e) {
       return null
     }
   }
@@ -99,44 +99,38 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getRenditionWidth () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+    try {
       return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().width
     }
-    else {
+    catch (e) {
       return null
     }
   }
 
   getRenditionHeight () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+    try {
       return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().height
     }
-    else {
+    catch (e) {
       return null
     }
   }
 
   getTitle () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation() != null) {
+    try {
       return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().metadata.title
     }
-    else {
+    catch (e) {
       return null
     }
   }
 
   getSrc () {
-    const mediaInfo = cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation()
-    if (mediaInfo != null) {
-      if (mediaInfo.contentUrl != undefined) {
-        return mediaInfo.contentUrl
-      }
-      else {
-        return this.getVideoId()
-      }
+    try {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl
     }
-    else {
-      return null
+    catch (e) {
+      return this.getVideoId()
     }
   }
 
