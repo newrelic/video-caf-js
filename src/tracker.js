@@ -78,7 +78,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getBitrate () {
-    return this._currentBitrate
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().streamBandwidth
+    }
+    else {
+      return null
+    }
   }
 
   getFps () {
@@ -94,11 +99,21 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getRenditionWidth () {
-    //TODO
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().width
+    }
+    else {
+      return null
+    }
   }
 
   getRenditionHeight () {
-    //TODO
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats() != null) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().height
+    }
+    else {
+      return null
+    }
   }
 
   getTitle () {
