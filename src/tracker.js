@@ -127,7 +127,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getSrc () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl
+      if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl != null)
+        return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl
     }
     catch (e) {
       return this.getVideoId()
