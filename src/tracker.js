@@ -168,7 +168,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onRequestLoad (ev) {
     nrvideo.Log.debug("OnRequestLoad = ", ev)
-    this.sendRequest()
   }
 
   onRequestStop (ev) {
@@ -218,6 +217,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onPlayerLoading (ev) {
     nrvideo.Log.debug("onPlayerLoading  = ", ev)
+    this.sendRequest()
   }
 
   onPlayerLoadComplete (ev) {
