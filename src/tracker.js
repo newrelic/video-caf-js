@@ -9,6 +9,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   constructor () {
     super()
     this.registerListeners()
+    this.reset()
   }
 
   registerListeners() {
@@ -45,6 +46,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     playerManager.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
   }
 
+  reset () {
+    this._currentBitrate = 0
+  }
+
   /** Tracker getters */
 
   getTrackerName () {
@@ -73,7 +78,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getBitrate () {
-    //TODO
+    return this._currentBitrate
   }
 
   getFps () {
@@ -81,7 +86,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getRenditionBitrate () {
-    //TODO
+    return this._currentBitrate
   }
 
   getRenditionName () {
@@ -232,6 +237,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onBitrateChanged (ev) {
     nrvideo.Log.debug("onBitrateChanged  = ", ev)
+    this._currentBitrate = ev.totalBitrate
+    this.sendRenditionChanged()
   }
 
   onEnded (ev) {
