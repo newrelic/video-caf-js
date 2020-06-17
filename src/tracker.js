@@ -19,6 +19,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequesStop(event) })
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_PAUSE, event => { this.onRequestPause(event) })
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_PLAY_AGAIN, event => { this.onRequestPlayAgain(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onRequestSeek(event) })
     this.player.addEventListener(cast.framework.events.EventType.BUFFERING, event => { this.onBuffering(event) })
     this.player.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
     this.player.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onEnded(event) })
@@ -34,7 +35,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, event => { this.onPlayerPreloadingCancelled(event) })
     this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, event => { this.onPlayerPreloading(event) })
 
-    this.onReady();
+    if (!this.adsTracker) {
+      this.setAdsTracker(new CAFAdsTracker(this.player))
+    }
   }
 
   reset () {
@@ -166,14 +169,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     return this.player.getPreferredTextLanguage()
   }
 
-  onReady () {
-    this.sendPlayerReady()
-    this.sendRequest()
-    this.sendStart()
-
-    if (!this.adsTracker) {
-      this.setAdsTracker(new CAFAdsTracker(this.player))
-    }
+  onRequestSeek () {
+    this.ensurePlayerReady()
+    this.ensureRequested()
   }
 
   onRequestPlay () {
@@ -181,6 +179,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onBuffering (ev) {
+    this.ensurePlayerReady()
+    this.ensureRequested()
+
     ev.isBuffering
       ? this.sendBufferStart()
       : this.sendBufferEnd();
@@ -219,12 +220,28 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onSeeked () {
+    this.ensurePlayerReady()
+    this.ensureRequested()
+    this.ensureStarted()
+
     this.sendSeekEnd()
   }
 
   onBitrateChanged (ev) {
     this._currentBitrate = ev.totalBitrate
     this.sendRenditionChanged()
+  }
+
+  ensurePlayerReady() {
+    if (!this.state.isPlayerReady) this.sendPlayerReady()
+  }
+
+  ensureRequested() {
+    if (!this.state.isRequested) this.sendRequest()
+  }
+
+  ensureStarted() {
+    if (!this.state.isStarted) this.sendStart()
   }
 }
 
