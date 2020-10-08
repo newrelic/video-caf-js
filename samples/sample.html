@@ -1,5 +1,7 @@
 <html>
 <head>
+    <script type="text/javascript" src="agent.js"></script>
+
     <!-- New Relic Video -->
     <script src="../dist/newrelic-caf.min.js"></script>
 
@@ -9,16 +11,26 @@
 <body>
     <cast-media-player></cast-media-player>
     <script>
+
+        // Capture JS errors
+        window.onerror = function (msg, url, line) {
+            console.log("Message : " + msg );
+            console.log("url : " + url );
+            console.log("Line number : " + line );
+            newrelic.addPageAction("JSError", {"errMessage": msg, "errUrl": url, "errLine": line})
+        }
+
         cast.framework.CastReceiverContext.getInstance().start();
         cast.framework.CastReceiverContext.getInstance().setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
-        console.log("Hello CAF Receiver!");
+        console.log("Hello CAF Receiver! rev.004");
 
         // Set logging level (show all messages)
         nrvideo.Log.level = nrvideo.Log.Levels.ALL;
 
         // Config New Relic Insights backend
-        nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
+        //nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
+        
         // Init CAF Tracker
         nrvideo.Core.addTracker(new nrvideo.CAFTracker());
     </script>

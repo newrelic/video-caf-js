@@ -50,6 +50,16 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this._currentBitrate = 0
   }
 
+  getAttributes (att) {
+    att = super.getAttributes(att)
+
+    if (cast.framework.CastReceiverContext.getInstance().getSenders().length != 0) {
+      att.senderUserAgent = cast.framework.CastReceiverContext.getInstance().getSenders()[0].userAgent
+    }
+
+    return att
+  }
+
   /** Tracker getters */
 
   getTrackerName () {
