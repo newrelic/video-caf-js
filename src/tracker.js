@@ -80,11 +80,16 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getPlayhead () {
-    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getCurrentTimeSec()
+    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getCurrentTimeSec() * 1000
   }
 
   getDuration () {
-    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec()
+    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec() > 0) {
+      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec() * 1000
+    }
+    else {
+      return null
+    }
   }
 
   getBitrate () {

@@ -23,13 +23,13 @@
         cast.framework.CastReceiverContext.getInstance().start();
         cast.framework.CastReceiverContext.getInstance().setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
-        console.log("Hello CAF Receiver! rev.004");
+        console.log("Hello CAF Receiver! rev.005");
 
         // Set logging level (show all messages)
         nrvideo.Log.level = nrvideo.Log.Levels.ALL;
 
         // Config New Relic Insights backend
-        //nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
+        nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("1567277", "4SxMEHFjPjZ-M7Do8Tt_M0YaTqwf4dTl"));
         
         // Init CAF Tracker
         nrvideo.Core.addTracker(new nrvideo.CAFTracker());
