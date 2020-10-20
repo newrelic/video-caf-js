@@ -1,6 +1,6 @@
 {
   "name": "newrelic-caf",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "New Relic tracker for CAF Receivers",
   "main": "src/index.js",
   "scripts": {
