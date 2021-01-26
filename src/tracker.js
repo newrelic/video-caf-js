@@ -13,7 +13,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   registerListeners() {
-    const playerManager = cast.framework.CastReceiverContext.getInstance().getPlayerManager()
+    const receiverContext = cast.framework.CastReceiverContext.getInstance()
+    const playerManager = receiverContext.getPlayerManager()
 
     /*
     // This captured all events. For testing and debug purpose only.
@@ -39,9 +40,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     playerManager.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, event => { this.onPlayerPreloading(event) })
     playerManager.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, event => { this.onPlayerPreloadingCancelled(event) })
     playerManager.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
+    receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
 
     /** DEBUG Events */
-    playerManager.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) })    
+    playerManager.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) })
     playerManager.addEventListener(cast.framework.events.EventType.ENDED, event => { this.onEnded(event) })
     playerManager.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
   }
@@ -255,6 +257,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     else {
       this.sendStart()
     }
+  }
+
+  onShutdown (ev) {
+    nrvideo.Log.debug("onShutdown  = ", ev)
+    this.sendEnd()
+    this.dispose()
   }
 
   /** DEBUG Events Listeners */
