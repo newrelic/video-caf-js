@@ -51,26 +51,25 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
 
   onStarted(ev) {
     nrvideo.Log.debug("onStartedAdBreak  = ", ev)
-    this.sendRequest();
-    this.sendAdBreakStart({adId: ev.breakId});
+    this.sendAdBreakStart({ adId: ev.breakId });
     this.state.isAdBreak = true;
   }
 
   onEnded(ev) {
     nrvideo.Log.debug("onEndedAdBreak  = ", ev)
-    this.sendAdBreakEnd();
+    this.sendAdBreakEnd({ adId: ev.breakId });
     this.state.isAdBreak = false;
   }
 
   onClipLoading(ev) {
     nrvideo.Log.debug("onClipLoading  = ", ev)
-    this.sendRequest();
+    const breakClip = this.player.getBreakManager().getBreakClipById(ev.breakClipId)
+    this.sendRequest({ adId: breakClip.id, adTitle: breakClip.title, adSrc: breakClip.contentId, adDuration: breakClip.duration });
   }
 
   onClipStarted(ev) {
-    const breakClip = this.player.getBreakManager().getBreakClipById(ev.breakClipId)
     nrvideo.Log.debug("onClipStarted  = ", ev)
-    this.sendStart({adId: breakClip.id, adTitle: breakClip.title, adSrc: breakClip.contentId, adDuration: breakClip.duration})
+    this.sendStart();
   }
 
   onClipEnded(ev) {
