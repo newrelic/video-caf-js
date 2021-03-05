@@ -27,12 +27,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     /** CORE Events */
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_LOAD, event => { this.onRequestLoad(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequesStop(event) })
+    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequestStop(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PAUSE, event => { this.onRequestPause(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PLAY, event => { this.onRequestPlay(event) })
     playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PLAY_AGAIN, event => { this.onRequestPlayAgain(event) })
     playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, event => { this.onBuffering(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
     playerManager.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onMediaFinished(event) })
     playerManager.addEventListener(cast.framework.events.EventType.PAUSE, event => { this.onPause(event) })
     playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, event => { this.onPlayerLoading(event) })
@@ -159,7 +158,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   isMuted () {
-    return cast.framework.CastReceiverContext.getInstance().getSystemVolume().muted
+    if (cast.framework.CastReceiverContext.getInstance().getSystemVolume())
+      return cast.framework.CastReceiverContext.getInstance().getSystemVolume().muted
   }
 
   getPlayrate () {
@@ -201,7 +201,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     nrvideo.Log.debug("onRequestPlay  = ", ev)
   }
 
-  ononRequestPlayAgain (ev) {
+  onRequestPlayAgain (ev) {
     nrvideo.Log.debug("onRequestPlayAgain  = ", ev)
   }
 
@@ -215,11 +215,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
       nrvideo.Log.debug("Buffer end")
       this.sendBufferEnd()
     }
-  }
-
-  onError (ev) {
-    nrvideo.Log.debug("onError  = ", ev)
-    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
   }
 
   onMediaFinished (ev) {
