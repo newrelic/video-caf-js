@@ -23,7 +23,7 @@
         cast.framework.CastReceiverContext.getInstance().start();
         cast.framework.CastReceiverContext.getInstance().setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
-        console.log("Hello CAF Receiver! rev.005");
+        console.log("Hello CAF Receiver! rev.006");
 
         // Set logging level (show all messages)
         nrvideo.Log.level = nrvideo.Log.Levels.ALL;
@@ -33,6 +33,20 @@
         
         // Init CAF Tracker
         nrvideo.Core.addTracker(new nrvideo.CAFTracker());
+
+        let playerManager = cast.framework.CastReceiverContext.getInstance().getPlayerManager();
+        playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
+            console.log("Intercepting LOAD request");
+            
+            const vmapUrl = "https://pubads.g.doubleclick.net/gampad/ads?sz=640x480&iu=/124319096/external/ad_rule_samples&ciu_szs=300x250&ad_rule=1&impl=s&gdfp_req=1&env=vp&output=vmap&unviewed_position_start=1&cust_params=deployment%3Ddevsite%26sample_ar%3Dpremidpost&cmsid=496&vid=short_onecue&correlator=" + Math.floor(Math.random() * Math.pow(10, 10));
+
+            request.media.vmapAdsRequest = {
+                adTagUrl: vmapUrl,
+            };
+
+            return request;
+        });
+
     </script>
 </body>
 </html>
