@@ -1,52 +1,39 @@
 import * as nrvideo from 'newrelic-video-core'
 import { version } from '../package.json'
+import CAFAdsTracker from './ads'
 
 export default class CAFTracker extends nrvideo.VideoTracker {
-
-  /**
-   * Constructor
-   */
-  constructor () {
-    super()
-    this.registerListeners()
-    this.reset()
-  }
-
   registerListeners() {
-    const receiverContext = cast.framework.CastReceiverContext.getInstance()
-    const playerManager = receiverContext.getPlayerManager()
-
-    /*
-    // This captured all events. For testing and debug purpose only.
-    playerManager.addEventListener(cast.framework.events.category.REQUEST, event => { nrvideo.Log.debug("REQUEST = ", event) })
-    playerManager.addEventListener(cast.framework.events.category.CORE, event => { nrvideo.Log.debug("CORE = ", event) })
-    playerManager.addEventListener(cast.framework.events.category.DEBUG, event => { nrvideo.Log.debug("DEBUG = ", event) })
-    playerManager.addEventListener(cast.framework.events.category.FINE, event => { nrvideo.Log.debug("FINE = ", event) })
-    */
+    this.receiverContext = cast.framework.CastReceiverContext.getInstance()
+    this.player = this.receiverContext.getPlayerManager()
 
     /** CORE Events */
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_LOAD, event => { this.onRequestLoad(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequestStop(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PAUSE, event => { this.onRequestPause(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PLAY, event => { this.onRequestPlay(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_PLAY_AGAIN, event => { this.onRequestPlayAgain(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, event => { this.onBuffering(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onMediaFinished(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PAUSE, event => { this.onPause(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, event => { this.onPlayerLoading(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, event => { this.onPlayerLoadComplete(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, event => { this.onPlayerPreloading(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, event => { this.onPlayerPreloadingCancelled(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onSeekStart(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.SEEKED, event => { this.onSeekEnd(event) })
-    receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_LOAD, event => { this.onRequestLoad(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_STOP, event => { this.onRequestStop(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_PAUSE, event => { this.onRequestPause(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_PLAY, event => { this.onRequestPlay(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_PLAY_AGAIN, event => { this.onRequestPlayAgain(event) })
+    this.player.addEventListener(cast.framework.events.EventType.BUFFERING, event => { this.onBuffering(event) })
+    this.player.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onMediaFinished(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PAUSE, event => { this.onPause(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, event => { this.onPlayerLoading(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, event => { this.onPlayerLoadComplete(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, event => { this.onPlayerPreloading(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, event => { this.onPlayerPreloadingCancelled(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onSeekStart(event) })
+    this.player.addEventListener(cast.framework.events.EventType.SEEKED, event => { this.onSeekEnd(event) })
+    this.receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
 
     /** DEBUG Events */
-    playerManager.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.ENDED, event => { this.onEnded(event) })
-    playerManager.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
+    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) })
+    this.player.addEventListener(cast.framework.events.EventType.ENDED, event => { this.onEnded(event) })
+    this.player.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
+
+    if (!this.adsTracker) {
+      this.setAdsTracker(new CAFAdsTracker(this.player))
+    }
   }
 
   reset () {
@@ -56,8 +43,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   getAttributes (att) {
     att = super.getAttributes(att)
 
-    if (cast.framework.CastReceiverContext.getInstance().getSenders().length != 0) {
-      att.senderUserAgent = cast.framework.CastReceiverContext.getInstance().getSenders()[0].userAgent
+    if (this.receiverContext.getSenders().length != 0) {
+      att.senderUserAgent = this.receiverContext.getSenders()[0].userAgent
     }
 
     return att
@@ -75,7 +62,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getVideoId () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentId
+      return this.player.getMediaInformation().contentId
     }
     catch (e) {
       return null
@@ -83,12 +70,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getPlayhead () {
-    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getCurrentTimeSec() * 1000
+    return this.player.getCurrentTimeSec() * 1000
   }
 
   getDuration () {
-    if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec() > 0) {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getDurationSec() * 1000
+    if (this.player.getDurationSec() > 0) {
+      return this.player.getDurationSec() * 1000
     }
     else {
       return null
@@ -97,7 +84,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getBitrate () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().streamBandwidth
+      return this.player.getStats().streamBandwidth
     }
     catch (e) {
       return null
@@ -118,7 +105,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getRenditionWidth () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().width
+      return this.player.getStats().width
     }
     catch (e) {
       return null
@@ -127,7 +114,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getRenditionHeight () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getStats().height
+      return this.player.getStats().height
     }
     catch (e) {
       return null
@@ -136,7 +123,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getTitle () {
     try {
-      return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().metadata.title
+      return this.player.getMediaInformation().metadata.title
     }
     catch (e) {
       return null
@@ -145,8 +132,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getSrc () {
     try {
-      if (cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl != null)
-        return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getMediaInformation().contentUrl
+      if (this.player.getMediaInformation().contentUrl != null)
+        return this.player.getMediaInformation().contentUrl
     }
     catch (e) {
       return this.getVideoId()
@@ -158,12 +145,16 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   isMuted () {
-    if (cast.framework.CastReceiverContext.getInstance().getSystemVolume())
-      return cast.framework.CastReceiverContext.getInstance().getSystemVolume().muted
+    try {
+      return this.receiverContext.getSystemVolume().muted
+    }
+    catch (e) {
+      return null
+    }
   }
 
   getPlayrate () {
-    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getPlaybackRate()
+    return this.player.getPlaybackRate()
   }
 
   isAutoplayed () {
@@ -175,7 +166,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getLanguage () {
-    return cast.framework.CastReceiverContext.getInstance().getPlayerManager().getPreferredTextLanguage()
+    return this.player.getPreferredTextLanguage()
   }
 
   /** CORE Events Listeners */
@@ -199,6 +190,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onRequestPlay (ev) {
     nrvideo.Log.debug("onRequestPlay  = ", ev)
+    this.sendRequest()
   }
 
   onRequestPlayAgain (ev) {
@@ -247,12 +239,13 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onPlaying (ev) {
-    nrvideo.Log.debug("onPlaying  = ", ev)
-    if (this.state.isPaused) {
-      this.sendResume()
-    }
-    else {
-      this.sendStart()
+    if (!this.adsTracker.state.isAdBreak) {
+      nrvideo.Log.debug("onPlaying  = ", ev);
+      if (this.state.isPaused) {
+        this.sendResume()
+      } else {
+        this.sendStart()
+      }
     }
   }
 
@@ -287,4 +280,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   onPlay (ev) {
     nrvideo.Log.debug("onPlay  = ", ev)
   }
+}
+
+// Static members
+export {
+  CAFAdsTracker
 }
