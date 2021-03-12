@@ -10,8 +10,32 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     return version;
   }
 
-  getPlayhead() {
-    return this.player.getCurrentTimeSec();
+  getVideoId() {
+    if (this.breakClip != null) {
+      return this.breakClip.id
+    }
+    return null
+  }
+
+  getTitle() {
+    if (this.breakClip != null) {
+      return this.breakClip.title
+    }
+    return null
+  }
+
+  getSrc() {
+    if (this.breakClip != null) {
+      return this.breakClip.contentId
+    }
+    return null
+  }
+
+  getDuration() {
+    if (this.breakClip != null) {
+      return this.breakClip.duration
+    }
+    return null
   }
 
   registerListeners() {
@@ -51,20 +75,18 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
 
   onStarted(ev) {
     nrvideo.Log.debug("onStartedAdBreak  = ", ev)
-    this.sendAdBreakStart({ adId: ev.breakId });
-    this.state.isAdBreak = true;
+    this.sendAdBreakStart({ adBreakId: ev.breakId });
   }
 
   onEnded(ev) {
     nrvideo.Log.debug("onEndedAdBreak  = ", ev)
-    this.sendAdBreakEnd({ adId: ev.breakId });
-    this.state.isAdBreak = false;
+    this.sendAdBreakEnd({ adBreakId: ev.breakId });
   }
 
   onClipLoading(ev) {
     nrvideo.Log.debug("onClipLoading  = ", ev)
-    const breakClip = this.player.getBreakManager().getBreakClipById(ev.breakClipId)
-    this.sendRequest({ adId: breakClip.id, adTitle: breakClip.title, adSrc: breakClip.contentId, adDuration: breakClip.duration });
+    this.breakClip = this.player.getBreakManager().getBreakClipById(ev.breakClipId)
+    this.sendRequest();
   }
 
   onClipStarted(ev) {

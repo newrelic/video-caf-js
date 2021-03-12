@@ -3,10 +3,17 @@ import { version } from '../package.json'
 import CAFAdsTracker from './ads'
 
 export default class CAFTracker extends nrvideo.VideoTracker {
-  registerListeners() {
-    this.receiverContext = cast.framework.CastReceiverContext.getInstance()
-    this.player = this.receiverContext.getPlayerManager()
 
+  /**
+   * Constructor
+   */
+  constructor () {
+    super()
+    this.reset()
+    this.registerListeners()
+  }
+
+  registerListeners() {
     /** CORE Events */
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_LOAD, event => { this.onRequestLoad(event) })
@@ -37,6 +44,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   reset () {
+    this.receiverContext = cast.framework.CastReceiverContext.getInstance()
+    this.player = this.receiverContext.getPlayerManager()
     this._currentBitrate = 0
   }
 
