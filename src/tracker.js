@@ -209,12 +209,22 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   onBuffering (ev) {
     nrvideo.Log.debug("onBuffering  = ", ev)
     if (ev.isBuffering) {
-      nrvideo.Log.debug("Buffer start")
-      this.sendBufferStart()
+      if (this.adsTracker.state.isAdBreak) {
+        nrvideo.Log.debug("Ad buffer start")
+        this.adsTracker.sendBufferStart();
+      } else {
+        nrvideo.Log.debug("Buffer start")
+        this.sendBufferStart()
+      }
     }
     else {
-      nrvideo.Log.debug("Buffer end")
-      this.sendBufferEnd()
+      if (this.adsTracker.state.isAdBreak) {
+        nrvideo.Log.debug("Ad buffer end")
+        this.adsTracker.sendBufferEnd();
+      } else {
+        nrvideo.Log.debug("Buffer end")
+        this.sendBufferEnd()
+      }
     }
   }
 
