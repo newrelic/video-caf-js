@@ -150,7 +150,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getPlayerVersion () {
-    return cast.player.api.VERSION
+    try {
+      return cast.player.api.VERSION
+    }
+    catch (e) {
+      return null
+    }
   }
 
   isMuted () {
