@@ -83,10 +83,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getDuration () {
-    if (this.player.getDurationSec() > 0) {
+    try {
       return this.player.getDurationSec() * 1000
     }
-    else {
+    catch (e) {
       return null
     }
   }
