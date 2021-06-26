@@ -47,7 +47,7 @@ nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
 
 To initialize the backend you need an ACCOUNT ID and an API KEY.
 
-The ACCOUNT ID indicates the New Relic account to which you would like to send the Roku data. For example, https://insights.newrelic.com/accounts/xxx. Where “xxx” is the Account ID.
+The ACCOUNT ID indicates the New Relic account to which you would like to send the Chromecast data. For example, https://insights.newrelic.com/accounts/xxx. Where “xxx” is the Account ID.
 
 To register the API Key, follow the instructions found [here](https://docs.newrelic.com/docs/telemetry-data-platform/ingest-apis/introduction-event-api/).
 
