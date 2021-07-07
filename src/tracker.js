@@ -31,6 +31,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onSeekStart(event) })
     this.player.addEventListener(cast.framework.events.EventType.SEEKED, event => { this.onSeekEnd(event) })
+    this.player.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
     this.receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
 
     /** DEBUG Events */
@@ -287,6 +288,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     nrvideo.Log.debug("onShutdown  = ", ev)
     this.sendEnd()
     this.dispose()
+  }
+  
+  onError (ev) {
+    nrvideo.Log.debug("onError  = ", ev)
+    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
   }
 
   /** DEBUG Events Listeners */
