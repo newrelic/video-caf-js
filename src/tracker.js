@@ -29,19 +29,48 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, event => { this.onPlayerPreloading(event) })
     this.player.addEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, event => { this.onPlayerPreloadingCancelled(event) })
     this.player.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
-    this.player.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onSeekStart(event) })
+    this.player.addEventListener(cast.framework.events.EventType.REQUEST_SEEK, event => { this.onRequestSeek(event) })
+    this.player.addEventListener(cast.framework.events.EventType.SEEKING, event => { this.onSeekStart(event) })
     this.player.addEventListener(cast.framework.events.EventType.SEEKED, event => { this.onSeekEnd(event) })
     this.player.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
-    this.receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
+    this.player.addEventListener(cast.framework.events.EventType.MEDIA_STATUS, event => { this.onMediaStatus(event) })
+    // cast.framework.system.EventType.SHUTDOWN has to be part of SYSTEM_METRICS. Commented this out for now 
+    // this.receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
 
     /** DEBUG Events */
-    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) })
-    this.player.addEventListener(cast.framework.events.EventType.ENDED, event => { this.onEnded(event) })
-    this.player.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
+    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, this.onBitrateChanged);
+    this.player.addEventListener(cast.framework.events.EventType.ENDED, this.onEnded);
+    this.player.addEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
 
     if (!this.adsTracker) {
       this.setAdsTracker(new CAFAdsTracker(this.player))
     }
+  }
+
+  unregisterListeners() {
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, this.onRequestFocusState);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_LOAD, this.onRequestLoad);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_STOP, this.onRequestStop);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_PAUSE, this.onRequestPause);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_PLAY, this.onRequestPlay);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_PLAY_AGAIN, this.onRequestPlayAgain);
+    this.player.removeEventListener(cast.framework.events.EventType.BUFFERING, this.onBuffering);
+    this.player.removeEventListener(cast.framework.events.EventType.MEDIA_FINISHED, this.onMediaFinished);
+    this.player.removeEventListener(cast.framework.events.EventType.PAUSE, this.onPause);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAYER_LOADING, this.onPlayerLoading);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, this.onPlayerLoadComplete);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAYER_PRELOADING, this.onPlayerPreloading);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAYER_PRELOADING_CANCELLED, this.onPlayerPreloadingCancelled);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAYING, this.onPlaying);
+    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_SEEK, this.onRequestSeek);
+    this.player.removeEventListener(cast.framework.events.EventType.SEEKING, this.onSeekStart);
+    this.player.removeEventListener(cast.framework.events.EventType.SEEKED, this.onSeekEnd);
+    this.player.removeEventListener(cast.framework.events.EventType.ERROR, this.onError);
+    this.player.removeEventListener(cast.framework.events.EventType.MEDIA_STATUS, this.onMediaStatus);
+    // this.receiverContext.removeEventListener(cast.framework.system.EventType.SHUTDOWN, this.onShutdown);
+    this.player.removeEventListener(cast.framework.events.EventType.BITRATE_CHANGED, this.onBitrateChanged);
+    this.player.removeEventListener(cast.framework.events.EventType.ENDED, this.onEnded);
+    this.player.removeEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
   }
 
   reset () {
@@ -68,6 +97,18 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   getTrackerVersion () {
     return version
+  }
+
+  getInstrumentationProvider() {
+    return 'New Relic';
+  }
+
+  getInstrumentationName() {
+    return this.getPlayerName();
+  }
+
+  getInstrumentationVersion() {
+    return this.getPlayerVersion();
   }
 
   getVideoId () {
@@ -150,6 +191,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     }
   }
 
+  getPlayerName() {
+    return 'caf'
+  }
+
   getPlayerVersion () {
     try {
       return cast.player.api.VERSION
@@ -161,7 +206,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   isMuted () {
     try {
-      return this.receiverContext.getSystemVolume().muted
+      return this.mediaStatus.volume.muted
     }
     catch (e) {
       return null
@@ -274,6 +319,10 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     }
   }
 
+  onRequestSeek (ev) {
+    nrvideo.Log.debug("onRequestSeek  = ", ev)
+  }
+
   onSeekStart (ev) {
     nrvideo.Log.debug("onSeekStart  = ", ev)
     this.sendSeekStart()
@@ -292,7 +341,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   
   onError (ev) {
     nrvideo.Log.debug("onError  = ", ev)
-    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
+    let errorMessage = ev.reason; 
+
+    if (ev.error && ev.error.message) {
+      errorMessage = ev.error.message;
+    }
+    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: errorMessage})
   }
 
   /** DEBUG Events Listeners */
@@ -309,6 +363,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onPlay (ev) {
     nrvideo.Log.debug("onPlay  = ", ev)
+  }
+
+  onMediaStatus (ev) {
+    nrvideo.Log.debug("onMediaStatus  = ", ev)
+    this.mediaStatus = ev.mediaStatus
   }
 }
 
