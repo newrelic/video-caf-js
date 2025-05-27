@@ -1,16 +1,24 @@
 import * as nrvideo from 'newrelic-video-core'
 import { version } from '../package.json'
 import CAFAdsTracker from './ads'
+import NRHarvester from './harvester';
+import {DEFAULT_HARVEST_TIME, DEFAULT_BUFFER_SIZE} from './constants'
 
 export default class CAFTracker extends nrvideo.VideoTracker {
 
   /**
    * Constructor
    */
-  constructor () {
+  constructor (licenseKey) {
     super()
     this.reset()
+    this.licenseKey = licenseKey;
+    this.nrHarvester = new NRHarvester(this.licenseKey, {
+      harvestInterval: DEFAULT_HARVEST_TIME, 
+      maxBufferSize: DEFAULT_BUFFER_SIZE
+    });
     this.registerListeners()
+    this.updateRecordCustomEvent();
   }
 
   registerListeners() {
@@ -232,85 +240,78 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /** CORE Events Listeners */
 
   onRequestFocusState (ev) {
-    nrvideo.Log.debug("onRequestFocusState = ", ev)
+    // nrvideo.Log.debug("onRequestFocusState = ", ev)
     this.sendPlayerReady()
   }
 
   onRequestLoad (ev) {
-    nrvideo.Log.debug("OnRequestLoad = ", ev)
+    // nrvideo.Log.debug("OnRequestLoad = ", ev)
   }
 
   onRequestStop (ev) {
-    nrvideo.Log.debug("OnRequestStop = ", ev)
+    // nrvideo.Log.debug("OnRequestStop = ", ev)
   }
 
   onRequestPause (ev) {
-    nrvideo.Log.debug("onRequestPause  = ", ev)
+    // nrvideo.Log.debug("onRequestPause  = ", ev)
   }
 
   onRequestPlay (ev) {
-    nrvideo.Log.debug("onRequestPlay  = ", ev)
+    // nrvideo.Log.debug("onRequestPlay  = ", ev)
     this.sendRequest()
   }
 
   onRequestPlayAgain (ev) {
-    nrvideo.Log.debug("onRequestPlayAgain  = ", ev)
+    // nrvideo.Log.debug("onRequestPlayAgain  = ", ev)
   }
 
   onBuffering (ev) {
-    nrvideo.Log.debug("onBuffering  = ", ev)
+    // nrvideo.Log.debug("onBuffering  = ", ev)
     if (ev.isBuffering) {
       if (this.adsTracker.state.isAdBreak) {
-        nrvideo.Log.debug("Ad buffer start")
         this.adsTracker.sendBufferStart();
       } else {
-        nrvideo.Log.debug("Buffer start")
         this.sendBufferStart()
       }
     }
     else {
       if (this.adsTracker.state.isAdBreak) {
-        nrvideo.Log.debug("Ad buffer end")
         this.adsTracker.sendBufferEnd();
       } else {
-        nrvideo.Log.debug("Buffer end")
         this.sendBufferEnd()
       }
     }
   }
 
   onMediaFinished (ev) {
-    nrvideo.Log.debug("onMediaFinished  = ", ev)
     this.sendEnd()
   }
 
   onPause (ev) {
-    nrvideo.Log.debug("onPause  = ", ev)
     if (!ev.ended) {
       this.sendPause()
     }
   }
 
   onPlayerLoading (ev) {
-    nrvideo.Log.debug("onPlayerLoading  = ", ev)
+    // nrvideo.Log.debug("onPlayerLoading  = ", ev)
     this.sendRequest()
   }
 
   onPlayerLoadComplete (ev) {
-    nrvideo.Log.debug("onPlayerLoadComplete  = ", ev)
+    // nrvideo.Log.debug("onPlayerLoadComplete  = ", ev)
   }
 
   onPlayerPreloading (ev) {
-    nrvideo.Log.debug("onPlayerPreloading  = ", ev)
+    // nrvideo.Log.debug("onPlayerPreloading  = ", ev)
   }
 
   onPlayerPreloadingCancelled (ev) {
-    nrvideo.Log.debug("onPlayerPreloadingCancelled  = ", ev)
+    // nrvideo.Log.debug("onPlayerPreloadingCancelled  = ", ev)
   }
 
   onPlaying (ev) {
     if (!this.adsTracker.state.isAdBreak) {
-      nrvideo.Log.debug("onPlaying  = ", ev);
       if (this.state.isPaused) {
         this.sendResume()
       } else {
@@ -320,28 +321,24 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onRequestSeek (ev) {
-    nrvideo.Log.debug("onRequestSeek  = ", ev)
+    // nrvideo.Log.debug("onRequestSeek  = ", ev)
   }
 
   onSeekStart (ev) {
-    nrvideo.Log.debug("onSeekStart  = ", ev)
     this.sendSeekStart()
   }
 
   onSeekEnd (ev) {
-    nrvideo.Log.debug("onSeekEnd  = ", ev)
     this.sendSeekEnd()
   }
 
   onShutdown (ev) {
-    nrvideo.Log.debug("onShutdown  = ", ev)
     this.sendEnd()
     this.dispose()
   }
-  
+
   onError (ev) {
-    nrvideo.Log.debug("onError  = ", ev)
-    let errorMessage = ev.reason; 
+    let errorMessage = ev.reason;
 
     if (ev.error && ev.error.message) {
       errorMessage = ev.error.message;
@@ -352,22 +349,36 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /** DEBUG Events Listeners */
 
   onBitrateChanged (ev) {
-    nrvideo.Log.debug("onBitrateChanged  = ", ev)
     this._currentBitrate = ev.totalBitrate
     this.sendRenditionChanged()
   }
 
   onEnded (ev) {
-    nrvideo.Log.debug("onEnded  = ", ev)
+    // nrvideo.Log.debug("onEnded  = ", ev)
   }
 
   onPlay (ev) {
-    nrvideo.Log.debug("onPlay  = ", ev)
+    // nrvideo.Log.debug("onPlay  = ", ev)
   }
 
   onMediaStatus (ev) {
-    nrvideo.Log.debug("onMediaStatus  = ", ev)
     this.mediaStatus = ev.mediaStatus
+  }
+
+  /**
+   * Overrides the New Relic Browser agent's recordCustomEvent function
+   */
+  updateRecordCustomEvent() {
+    if (typeof window !== 'undefined' && window.newrelic) {
+      window.newrelic.recordCustomEvent = (eventType, attributes) => { 
+        this.nrHarvester.addEventToBuffer(
+          eventType,
+          attributes
+        );
+      };
+    } else {
+      nrvideo.Log.warn("window.newrelic is not defined. Cannot override recordCustomEvent");
+    }
   }
 }
 
