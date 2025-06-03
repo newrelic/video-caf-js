@@ -1,20 +1,21 @@
-import {DEFAULT_HARVEST_TIME, DEFAULT_BUFFER_SIZE} from './constants'
+import {DEFAULT_HARVEST_TIME, DEFAULT_BUFFER_SIZE, NR_ENDPOINT} from './constants'
 
 export default class NRHarvester {
   
     /**
      * Constructor
-     * @param {string} licenseKey - The New Relic mobile application license key.
+     * @param {string} licenseKey - The New Relic application license key.
+     * @param {string} endpoint - Type of endpoint to use (e.g., 'US', 'EU', 'staging').
      * @param {object} [options] - Optional configuration for harvesting.
-     * @param {number} [options.harvestInterval] - Interval in ms to send events.
-     * @param {number} [options.maxBufferSize] - Max events to buffer before sending.
      */
-    constructor(licenseKey, options = {}) {
+    constructor(licenseKey, endpoint, options = {}) {
       this.licenseKey = licenseKey;
+      this.endpoint = endpoint;
       this.eventBuffer = [];
       this.harvestInterval = options.harvestInterval || DEFAULT_HARVEST_TIME; 
       this.maxBufferSize = options.maxBufferSize || DEFAULT_BUFFER_SIZE;
       this.harvestTimer = null;
+      this.dataToken = null; 
   
       this.startHarvestTimer();
     }
@@ -50,7 +51,9 @@ export default class NRHarvester {
     }
   
     async fetchDataTokens() {
-      const url = "https://mobile-collector.newrelic.com/mobile/v4/connect";
+      const url = this.endpoint == NR_ENDPOINT.STAGING
+                ? "https://staging-mobile-collector.newrelic.com/mobile/v5/connect"
+                : "https://mobile-collector.newrelic.com/mobile/v5/connect";
       const headers = {
         "X-App-License-Key": this.licenseKey,
         "Content-Type": "application/json",
@@ -99,14 +102,11 @@ export default class NRHarvester {
     }
 
     async sendToMobileCollector(eventsToProcess) {
-        const dataToken = await this.fetchDataTokens();
-        if (!dataToken) {
-            nrvideo.Log.error("Cannot send buffered events: data token not available.");
-            return;
-        }
-
+        const url = this.endpoint == NR_ENDPOINT.STAGING
+                ? "https://staging-mobile-collector.newrelic.com/mobile/v3/data"
+                : "https://mobile-collector.newrelic.com/mobile/v3/data";
         const payload = [
-            dataToken,
+            this.dataToken,
             [
                 "Browser", 
                 "15", 
@@ -134,13 +134,13 @@ export default class NRHarvester {
         ];
     
         try {
-            const response = await fetch('https://mobile-collector.newrelic.com/mobile/v3/data', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-App-License-Key': this.licenseKey
-            },
-            body: JSON.stringify(payload)
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-App-License-Key': this.licenseKey
+                },
+                body: JSON.stringify(payload)
             });
     
             if (!response.ok) {
@@ -165,7 +165,25 @@ export default class NRHarvester {
       const eventsToProcess = [...this.eventBuffer]; 
       this.eventBuffer = []; 
       try {
-        await this.sendToMobileCollector(eventsToProcess); 
+        this.fetchDataTokens()
+        .then((dataToken) => {
+            if (dataToken) {
+                this.dataToken = typeof dataToken === 'string' ? JSON.parse(dataToken) : dataToken;
+                console.log("Using dataToken:", this.dataToken);
+                return this.sendToMobileCollector(eventsToProcess);
+            } else {
+                console.warn("Failed to retrieve data token. Skipping harvest.");
+                return null;
+            }
+        })
+        .then((response) => {
+            console.log("Harvest completed successfully:", response);
+            this.startHarvestTimer();
+        })
+        .catch((error) => {
+            console.error("Error during harvest:", error);
+            this.startHarvest();
+        });
       } catch (error) {
         nrvideo.Log.error("Error during harvest process:", error);
       } finally {

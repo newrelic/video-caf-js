@@ -9,11 +9,13 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /**
    * Constructor
    */
-  constructor (licenseKey) {
+  constructor (accountId, licenseKey, endpoint) {
     super()
     this.reset()
+    this.accountId = accountId;
     this.licenseKey = licenseKey;
-    this.nrHarvester = new NRHarvester(this.licenseKey, {
+    this.endpoint = endpoint;
+    this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
       harvestInterval: DEFAULT_HARVEST_TIME, 
       maxBufferSize: DEFAULT_BUFFER_SIZE
     });

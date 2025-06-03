@@ -30,7 +30,7 @@
         //nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
         
         // Init CAF Tracker
-        nrvideo.Core.addTracker(new nrvideo.CAFTracker("<LICENSE KEY>"));
+        nrvideo.Core.addTracker(new nrvideo.CAFTracker("<ACCOUNT_ID>", "<APPLICATION_TOKEN>", "<ENDPOINT>"));
 
         let playerManager = cast.framework.CastReceiverContext.getInstance().getPlayerManager();
         playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
