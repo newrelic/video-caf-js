@@ -11,27 +11,20 @@
     <cast-media-player></cast-media-player>
     <script>
 
-        // Capture JS errors
-        window.onerror = function (msg, url, line) {
-            console.log("Message : " + msg );
-            console.log("url : " + url );
-            console.log("Line number : " + line );
-            newrelic.addPageAction("JSError", {"errMessage": msg, "errUrl": url, "errLine": line})
-        }
-
         cast.framework.CastReceiverContext.getInstance().start();
         cast.framework.CastReceiverContext.getInstance().setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
         // Set logging level (show all messages)
         nrvideo.Log.level = nrvideo.Log.Levels.ALL;
 
-        // Config New Relic Insights backend
-        //nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
-        
-        // Init CAF Tracker
-        nrvideo.Core.addTracker(new nrvideo.CAFTracker("<ACCOUNT_ID>", "<APPLICATION_TOKEN>", "<ENDPOINT>"));
-
         let playerManager = cast.framework.CastReceiverContext.getInstance().getPlayerManager();
+    
+        nrvideo.Core.addTracker(new nrvideo.CAFTracker(playerManager, options = {}, {
+            accountId: "<ACCOUNT_ID>",
+            applicationToken: "<APPLICATION_TOKEN>",
+            endpoint: "<ENDPOINT>"
+        }));
+
         playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
             console.log("Intercepting LOAD request");
             

@@ -9,19 +9,26 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /**
    * Constructor
    */
-  constructor (accountId, licenseKey, endpoint) {
-    super()
-    this.reset()
-    this.accountId = accountId;
-    this.licenseKey = licenseKey;
-    this.endpoint = endpoint;
-    window.newrelic = window.newrelic || {};
-    this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
-      harvestInterval: DEFAULT_HARVEST_TIME, 
-      maxBufferSize: DEFAULT_BUFFER_SIZE
-    });
-    this.registerListeners()
+  constructor(player, options, authCredentials) {
+    super(player, options);
+    this.reset();
+    this.initializeAuthConfig(authCredentials);
+    this.initializeHarvester();
+    this.registerListeners();
     this.updateRecordCustomEvent();
+  }
+
+  initializeAuthConfig(authCredentials) {
+      this.accountId = authCredentials.accountId;
+      this.licenseKey = authCredentials.applicationToken;
+      this.endpoint = authCredentials.endpoint;
+  }
+
+  initializeHarvester() {
+      this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
+          harvestInterval: DEFAULT_HARVEST_TIME,
+          maxBufferSize: DEFAULT_BUFFER_SIZE,
+      });
   }
 
   registerListeners() {
@@ -86,7 +93,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   reset () {
     this.receiverContext = cast.framework.CastReceiverContext.getInstance()
-    this.player = this.receiverContext.getPlayerManager()
     this._currentBitrate = 0
   }
 
@@ -368,20 +374,14 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.mediaStatus = ev.mediaStatus
   }
 
-  /**
-   * Overrides the New Relic Browser agent's recordCustomEvent function
-   */
   updateRecordCustomEvent() {
-    if (typeof window !== 'undefined' && window.newrelic) {
-      window.newrelic.recordCustomEvent = (eventType, attributes) => { 
-        this.nrHarvester.addEventToBuffer(
-          eventType,
-          attributes
-        );
-      };
-    } else {
-      nrvideo.Log.warn("window.newrelic is not defined. Cannot override recordCustomEvent");
-    }
+    window.newrelic = window.newrelic || {};
+    window.newrelic.recordCustomEvent = (eventType, attributes) => { 
+      this.nrHarvester.addEventToBuffer(
+        eventType,
+        attributes
+      );
+    };
   }
 }
 

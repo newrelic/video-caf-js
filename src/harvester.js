@@ -38,6 +38,7 @@ export default class NRHarvester {
       const event = {
         ...attributes,
         "eventType": eventType,
+        "timestamp": new Date().getTime(),
       };
       this.eventBuffer.push(event);
   
