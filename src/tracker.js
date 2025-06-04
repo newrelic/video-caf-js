@@ -15,6 +15,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.accountId = accountId;
     this.licenseKey = licenseKey;
     this.endpoint = endpoint;
+    window.newrelic = window.newrelic || {};
     this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
       harvestInterval: DEFAULT_HARVEST_TIME, 
       maxBufferSize: DEFAULT_BUFFER_SIZE
