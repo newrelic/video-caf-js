@@ -6,7 +6,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
   constructor(player) {
     super(player);
     this.reset();
-    this.registerListeners();
   }
 
   getTrackerName() {
@@ -63,7 +62,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.PLAY, (event) => {this.onPlay(event)});
     this.player.addEventListener(cast.framework.events.EventType.SEEKING, (event) => {this.onSeekStart(event)});
     this.player.addEventListener(cast.framework.events.EventType.SEEKED, (event) => {this.onSeekEnd(event)});
-    this.player.addEventListener(cast.framework.events.EventType.ERROR, (event) => {this.onError(event)});
   }
 
   unregisterListeners() {
@@ -78,7 +76,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     this.player.removeEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
     this.player.removeEventListener(cast.framework.events.EventType.SEEKING, this.onSeekStart);
     this.player.removeEventListener(cast.framework.events.EventType.SEEKED, this.onSeekEnd);
-    this.player.removeEventListener(cast.framework.events.EventType.ERROR, this.onError);
   }
 
   reset() {
@@ -87,29 +84,24 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
   }
 
   onStarted(ev) {
-    nrvideo.Log.debug("onStartedAdBreak  = ", ev)
     this.sendAdBreakStart({ adBreakId: ev.breakId });
   }
 
   onEnded(ev) {
-    nrvideo.Log.debug("onEndedAdBreak  = ", ev)
     this.sendAdBreakEnd({ adBreakId: ev.breakId });
   }
 
   onClipLoading(ev) {
-    nrvideo.Log.debug("onClipLoading  = ", ev)
     this.breakClip = this.player.getBreakManager().getBreakClipById(ev.breakClipId);
     this.quartilesTracked = {};  // Reset quartiles when a new clip loads
     this.sendRequest();
   }
 
   onClipStarted(ev) {
-    nrvideo.Log.debug("onClipStarted  = ", ev)
     this.sendStart();
   }
 
   onClipEnded(ev) {
-    nrvideo.Log.debug("onClipEnded  = ", ev)
     this.sendEnd();
   }
 
@@ -142,7 +134,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
   }
 
   onBitrateChanged (ev) {
-    nrvideo.Log.debug("onBitrateChanged  = ", ev)
     this._currentBitrate = ev.totalBitrate
     this.sendRenditionChanged()
   }
@@ -156,17 +147,14 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
   }
 
   onSeekStart (ev) {
-    nrvideo.Log.debug("onSeekStart  = ", ev)
     this.sendSeekStart()
   }
 
   onSeekEnd (ev) {
-    nrvideo.Log.debug("onSeekEnd  = ", ev)
     this.sendSeekEnd()
   }
 
-  onError(ev) {
-    nrvideo.Log.debug("onError  = ", ev)
+  onError (ev) {
     let errorMessage = ev.reason; 
 
     if (ev.error && ev.error.message) {

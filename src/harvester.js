@@ -52,6 +52,10 @@ export default class NRHarvester {
     }
   
     async fetchDataTokens() {
+      if (this.dataToken) {
+        return this.dataToken; 
+      }
+
       const url = this.endpoint == NR_ENDPOINT.STAGING
                 ? "https://staging-mobile-collector.newrelic.com/mobile/v5/connect"
                 : "https://mobile-collector.newrelic.com/mobile/v5/connect";
@@ -163,26 +167,23 @@ export default class NRHarvester {
         return;
       }
 
-      const eventsToProcess = [...this.eventBuffer]; 
-      this.eventBuffer = []; 
       try {
         this.fetchDataTokens()
         .then((dataToken) => {
             if (dataToken) {
                 this.dataToken = typeof dataToken === 'string' ? JSON.parse(dataToken) : dataToken;
-                console.log("Using dataToken:", this.dataToken);
+                const eventsToProcess = [...this.eventBuffer]; 
+                this.eventBuffer = []; 
                 return this.sendToMobileCollector(eventsToProcess);
             } else {
-                console.warn("Failed to retrieve data token. Skipping harvest.");
-                return null;
+                nrvideo.Log.error("Failed to retrieve data token. Skipping harvest.");
             }
         })
         .then((response) => {
-            console.log("Harvest completed successfully:", response);
             this.startHarvestTimer();
         })
         .catch((error) => {
-            console.error("Error during harvest:", error);
+          nrvideo.Log.error("Error during harvest:", error);
             this.startHarvest();
         });
       } catch (error) {

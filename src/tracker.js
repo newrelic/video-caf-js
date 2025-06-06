@@ -9,16 +9,15 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /**
    * Constructor
    */
-  constructor(player, options, authCredentials) {
-    super(player, options);
+  constructor(receiverContext, options, authCredentials) {
+    super(receiverContext.getPlayerManager(), options);
+    this.receiverContext = receiverContext;
     this.reset();
-    this.initializeAuthConfig(authCredentials);
+    this.configureAuthentication(authCredentials);
     this.initializeHarvester();
-    this.registerListeners();
-    this.updateRecordCustomEvent();
   }
 
-  initializeAuthConfig(authCredentials) {
+  configureAuthentication(authCredentials) {
       this.accountId = authCredentials.accountId;
       this.licenseKey = authCredentials.applicationToken;
       this.endpoint = authCredentials.endpoint;
@@ -29,6 +28,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
           harvestInterval: DEFAULT_HARVEST_TIME,
           maxBufferSize: DEFAULT_BUFFER_SIZE,
       });
+      this.updateRecordCustomEvent();
   }
 
   registerListeners() {
@@ -56,9 +56,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     // this.receiverContext.addEventListener(cast.framework.system.EventType.SHUTDOWN, event => { this.onShutdown(event)})
 
     /** DEBUG Events */
-    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, this.onBitrateChanged);
-    this.player.addEventListener(cast.framework.events.EventType.ENDED, this.onEnded);
-    this.player.addEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
+    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) });
+    this.player.addEventListener(cast.framework.events.EventType.ENDED, event => { this.onEnded(event) });
+    this.player.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) });
 
     if (!this.adsTracker) {
       this.setAdsTracker(new CAFAdsTracker(this.player))
@@ -92,7 +92,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   reset () {
-    this.receiverContext = cast.framework.CastReceiverContext.getInstance()
     this._currentBitrate = 0
   }
 
@@ -249,7 +248,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /** CORE Events Listeners */
 
   onRequestFocusState (ev) {
-    // nrvideo.Log.debug("onRequestFocusState = ", ev)
     this.sendPlayerReady()
   }
 
@@ -266,7 +264,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onRequestPlay (ev) {
-    // nrvideo.Log.debug("onRequestPlay  = ", ev)
     this.sendRequest()
   }
 
@@ -275,7 +272,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onBuffering (ev) {
-    // nrvideo.Log.debug("onBuffering  = ", ev)
     if (ev.isBuffering) {
       if (this.adsTracker.state.isAdBreak) {
         this.adsTracker.sendBufferStart();
@@ -312,11 +308,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onPlayerPreloading (ev) {
-    // nrvideo.Log.debug("onPlayerPreloading  = ", ev)
+    nrvideo.Log.debug("onPlayerPreloading  = ", ev)
   }
 
   onPlayerPreloadingCancelled (ev) {
-    // nrvideo.Log.debug("onPlayerPreloadingCancelled  = ", ev)
+    nrvideo.Log.debug("onPlayerPreloadingCancelled  = ", ev)
   }
 
   onPlaying (ev) {
@@ -347,12 +343,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onError (ev) {
-    let errorMessage = ev.reason;
-
-    if (ev.error && ev.error.message) {
-      errorMessage = ev.error.message;
+    if (this.state._isAd || ev.detailedErrorCode === cast.framework.events.DetailedErrorCode.BREAK_CLIP_LOADING_ERROR || 
+        ev.detailedErrorCode === cast.framework.events.DetailedErrorCode.BREAK_SEEK_INTERCEPTOR_ERROR) {
+      this.adsTracker.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
+      return
     }
-    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: errorMessage})
+    this.sendError({errorCode: ev.detailedErrorCode, errorMessage: ev.reason})
   }
 
   /** DEBUG Events Listeners */
