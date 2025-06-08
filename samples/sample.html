@@ -18,7 +18,7 @@
     receiverContext.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
     // Add the New Relic CAF tracker to the receiver context.
-    nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, {}, {
+    nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, authCredentials = { 
         accountId: "<ACCOUNT_ID>",
         applicationToken: "<APPLICATION_TOKEN>",
         endpoint: "<ENDPOINT>"

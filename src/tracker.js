@@ -9,8 +9,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   /**
    * Constructor
    */
-  constructor(receiverContext, options, authCredentials) {
-    super(receiverContext.getPlayerManager(), options);
+  constructor(receiverContext, authCredentials) {
+    if (!receiverContext) {
+      nrvideo.Log.error('Receiver context is not initialized. Please ensure the cast receiverContext is properly set up.');
+    }
+    super(receiverContext.getPlayerManager());
     this.receiverContext = receiverContext;
     this.reset();
     this.configureAuthentication(authCredentials);
@@ -18,17 +21,17 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   configureAuthentication(authCredentials) {
-      this.accountId = authCredentials.accountId;
-      this.licenseKey = authCredentials.applicationToken;
-      this.endpoint = authCredentials.endpoint;
+    this.accountId = authCredentials.accountId;
+    this.licenseKey = authCredentials.applicationToken;
+    this.endpoint = authCredentials.endpoint;
   }
 
   initializeHarvester() {
-      this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
-          harvestInterval: DEFAULT_HARVEST_TIME,
-          maxBufferSize: DEFAULT_BUFFER_SIZE,
-      });
-      this.updateRecordCustomEvent();
+    this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
+        harvestInterval: DEFAULT_HARVEST_TIME,
+        maxBufferSize: DEFAULT_BUFFER_SIZE,
+    });
+    this.updateRecordCustomEvent();
   }
 
   registerListeners() {
@@ -372,8 +375,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   updateRecordCustomEvent() {
     window.newrelic = window.newrelic || {};
-    window.newrelic.recordCustomEvent = (eventType, attributes) => { 
-      this.nrHarvester.addEventToBuffer(
+    window.newrelic.recordCustomEvent = async (eventType, attributes) => { 
+      await this.nrHarvester.addEventToBuffer(
         eventType,
         attributes
       );
