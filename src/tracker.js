@@ -222,7 +222,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onLoadedMetadata (ev) {
-    if (this.adsTracker.state.isAdBreak) {
+    if (!this.adsTracker.state.isAdBreak) {
       this.sendDownload()
     }
   }
