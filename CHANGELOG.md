@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [0.7.0] - 2021/06/11
+### Add
+- New Event Type Introduced [VideoAction, VideoErrorAction, VideoAdAction, VideoCustomAction]
+- New Attributes Added
+- Harvester Logic Added
+
 ## [0.4.0] - 2021/02/04
 ### Add
 - Seeking events.
