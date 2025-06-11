@@ -57,6 +57,21 @@ nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, authCredentials 
     endpoint: "<ENDPOINT>"
 }));
 ```
+### Using the Tracker with Chromecast Device Emulator
+
+To test the tracker with the Chromecast Device Emulator, follow these steps:
+
+1. Install the Chromecast Device Emulator npm package:
+    ```bash
+    npm i chromecast-device-emulator
+    ```
+
+2. Add all the IPC messages from the sender to the `scenario.json` file.
+
+3. Start the emulator using the following command:
+    ```bash
+    cde start scenario.json
+    ```
 
 ## Examples
 
