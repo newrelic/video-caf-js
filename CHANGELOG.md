@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [0.7.0] - 2025/06/11
+## [3.0.0] - 2025/06/11
 ### Add
 - New Event Type Introduced [VideoAction, VideoErrorAction, VideoAdAction, VideoCustomAction]
 - New Attributes Added
