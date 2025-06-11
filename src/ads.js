@@ -57,11 +57,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.BREAK_CLIP_STARTED,(event) => {this.onClipStarted(event)});
     this.player.addEventListener(cast.framework.events.EventType.BREAK_CLIP_ENDED,(event) => {this.onClipEnded(event)});
     this.player.addEventListener(cast.framework.events.EventType.TIME_UPDATE, (event) => {this.onTimeUpdate(event)});
-    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, (event) => {this.onBitrateChanged(event)});
-    this.player.addEventListener(cast.framework.events.EventType.PAUSE, (event) => {this.onPause(event)});
-    this.player.addEventListener(cast.framework.events.EventType.PLAY, (event) => {this.onPlay(event)});
-    this.player.addEventListener(cast.framework.events.EventType.SEEKING, (event) => {this.onSeekStart(event)});
-    this.player.addEventListener(cast.framework.events.EventType.SEEKED, (event) => {this.onSeekEnd(event)});
   }
 
   unregisterListeners() {
@@ -71,11 +66,6 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     this.player.removeEventListener(cast.framework.events.EventType.BREAK_CLIP_STARTED, this.onClipStarted);
     this.player.removeEventListener(cast.framework.events.EventType.BREAK_CLIP_ENDED, this.onClipEnded);
     this.player.removeEventListener(cast.framework.events.EventType.TIME_UPDATE, this.onTimeUpdate);
-    this.player.removeEventListener(cast.framework.events.EventType.BITRATE_CHANGED, this.onBitrateChanged);
-    this.player.removeEventListener(cast.framework.events.EventType.PAUSE, this.onPause);
-    this.player.removeEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
-    this.player.removeEventListener(cast.framework.events.EventType.SEEKING, this.onSeekStart);
-    this.player.removeEventListener(cast.framework.events.EventType.SEEKED, this.onSeekEnd);
   }
 
   reset() {
@@ -116,17 +106,14 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
       const progressPercent = (currentTime / duration) * 100;
 
       if (progressPercent >= 25 && progressPercent < 50 && !this.quartilesTracked['firstQuartile']) {
-        nrvideo.Log.debug(`Ad Quartile 25% reached, currentTime: ${currentTime}`);
         this.sendAdQuartile({ adQuartile: 1 });
         this.quartilesTracked['firstQuartile'] = true;
       }
       if (progressPercent >= 50 && progressPercent < 75 && !this.quartilesTracked['midpoint']) {
-        nrvideo.Log.debug(`Ad Quartile 50% reached, currentTime: ${currentTime}`);
         this.sendAdQuartile({ adQuartile: 2 });
         this.quartilesTracked['midpoint'] = true;
       }
       if (progressPercent >= 75 && !this.quartilesTracked['thirdQuartile']) {
-        nrvideo.Log.debug(`Ad Quartile 75% reached, currentTime: ${currentTime}`);
         this.sendAdQuartile({ adQuartile: 3 });
         this.quartilesTracked['thirdQuartile'] = true;
       }
