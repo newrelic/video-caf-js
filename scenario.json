@@ -1,0 +1,24 @@
+{
+  "timeline": [
+    {
+      "time": 844,
+      "ipcMessage": "{\"data\":\"{\\\"applicationId\\\":\\\"628AC8D3\\\",\\\"applicationName\\\":\\\"CAFV1\\\",\\\"closedCaption\\\":{},\\\"deviceCapabilities\\\":{\\\"bluetooth_supported\\\":true,\\\"display_supported\\\":true,\\\"focus_state_supported\\\":true,\\\"hi_res_audio_supported\\\":false},\\\"launchingSenderId\\\":\\\"7f8b100d-a1fe-e60b-5a35-6feaa22976df.2:sender-l4koe754cbxf\\\",\\\"messagesVersion\\\":\\\"1.0\\\",\\\"sessionId\\\":\\\"46fd154e-f03d-4d58-986d-4998c43639a7\\\",\\\"type\\\":\\\"ready\\\",\\\"version\\\":\\\"1.30.113131\\\"}\",\"namespace\":\"urn:x-cast:com.google.cast.system\",\"senderId\":\"SystemSender\"}"
+    },
+    {
+      "time": 1064,
+      "ipcMessage": "{\"data\":\"{\\\"type\\\":\\\"LOAD\\\",\\\"requestId\\\":889570262,\\\"sessionId\\\":\\\"46fd154e-f03d-4d58-986d-4998c43639a7\\\",\\\"media\\\":{\\\"contentId\\\":\\\"BigBuckBunny_CanonicalID\\\",\\\"contentUrl\\\":\\\"http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4\\\",\\\"streamType\\\":\\\"LIVE\\\",\\\"contentType\\\":\\\"video/mp4\\\",\\\"metadata\\\":{\\\"type\\\":0,\\\"metadataType\\\":0,\\\"title\\\":\\\"Big Buck Bunny\\\",\\\"images\\\":[{\\\"url\\\":\\\"http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg\\\"}]}},\\\"autoplay\\\":true}\",\"namespace\":\"urn:x-cast:com.google.cast.media\",\"senderId\":\"7f8b100d-a1fe-e60b-5a35-6feaa22976df.2:152792770056491611\"}"
+    },
+    {
+      "time": 50000,
+      "ipcMessage": "{\"data\":\"{\\\"currentTime\\\":300,\\\"type\\\":\\\"SEEK\\\",\\\"mediaSessionId\\\":1,\\\"sessionId\\\":\\\"46fd154e-f03d-4d58-986d-4998c43639a7\\\",\\\"requestId\\\":889570264}\",\"namespace\":\"urn:x-cast:com.google.cast.media\",\"senderId\":\"7f8b100d-a1fe-e60b-5a35-6feaa22976df.2:152792770056491611\"}"
+    },
+    {
+      "time": 70000,
+      "ipcMessage": "{\"data\":\"{\\\"currentTime\\\":60,\\\"type\\\":\\\"PAUSE\\\",\\\"mediaSessionId\\\":1,\\\"sessionId\\\":\\\"...\\\",\\\"requestId\\\":910}\",\"namespace\":\"urn:x-cast:com.google.cast.media\",\"senderId\":\"7f8b100d-a1fe-e60b-5a35-6feaa22976df.2:152792770056491611\"}"
+    },
+    {
+      "time": 80000,
+      "ipcMessage": "{\"data\":\"{\\\"type\\\":\\\"PLAY\\\",\\\"mediaSessionId\\\":1,\\\"sessionId\\\":\\\"...\\\",\\\"requestId\\\":911}\",\"namespace\":\"urn:x-cast:com.google.cast.media\",\"senderId\":\"7f8b100d-a1fe-e60b-5a35-6feaa22976df.2:152792770056491611\"}"
+    }
+  ]
+}
