@@ -3,59 +3,76 @@
 
 # New Relic CAF Tracker
 
-New Relic video tracking for CAF Receivers.
+The New Relic CAF Tracker enhances your media applications by tracking video events, playback errors, and other activities, providing comprehensive insights into performance and user interactions.
 
-## Requirements
+- The CAF tracker is available as a ready-to-use JavaScript snippet for easy copy-paste integration.
+- New Relic CAF tracker auto-detects events emitted by Chromecast Receiver.
+- For questions and feedback on this package, please visit the [Explorer's Hub](https://discuss.newrelic.com), New Relic's community support forum.
+- Looking to contribute to the CAF tracker code base? See [DEVELOPING.md](./DEVELOPING.md) for instructions on building and testing the CAF tracker, and Contributors.
 
-This video monitor solutions can work both, on top of New Relic's **Browser Agent** or standalone.
+## Adding the CAF Tracker to Your Project
 
-## Build
-
-Install dependencies:
-
-```
-$ npm install
-```
-
-And build:
-
-```
-$ npm run build:dev
-```
-
-Or if you need a production build:
-
-```
-$ npm run build
-```
-
-## Usage
-
-Load **scripts** inside `dist` folder into your page.
+To integrate the New Relic CAF Tracker into your web application, include the CAF Tracker script in your HTML file. Here's an example:
 
 ```html
-<script src="../dist/newrelic-caf.min.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <!-- Include the CAF Tracker script -->
+        <script src="path/to/caf-tracker.js"></script>
+    </head>
+    <body>
+        <!-- Your HTML content goes here -->
+    </body>
+</html>
 ```
 
-> If `dist` folder is not included, run `npm i && npm run build` to build it.
-
-If **NOT** using the New Relic Browser Agent, add this line of code:
+## Instantiating the CAF Tracker
 
 ```javascript
-nrvideo.Core.setBackend(new nrvideo.NRInsightsBackend("ACCOUNT ID", "API KEY"));
+// Add a CAF tracker
+nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, authCredentials = { 
+    accountId: "<ACCOUNT_ID>",
+    applicationToken: "<APPLICATION_TOKEN>",
+    endpoint: "<ENDPOINT>"
+}));
+
+//For setting options
+tracker.setOptions({
+  customData: {
+    contentTitle: 'Override Existing Title',
+    customPlayerName: 'myGreatPlayer',
+    customPlayerVersion: '9.4.2',
+  },
+});
+
+// For setting userId
+tracker.setUserId('userId');
+
+// For Sending custom Action with Attributes
+const tracker = new nrvideo.CAFTracker(receiverContext, authCredentials = { 
+    accountId: "<ACCOUNT_ID>",
+    applicationToken: "<APPLICATION_TOKEN>",
+    endpoint: "<ENDPOINT>"
+});
+
+tracker.sendCustom('CUSTOM_ACTION', 'state time', {
+  test1: 'value1',
+  test2: 'value2',
+});
 ```
 
-To initialize the backend you need an ACCOUNT ID and an API KEY.
+## Data Model
 
-The ACCOUNT ID indicates the New Relic account to which you would like to send the Chromecast data. For example, https://insights.newrelic.com/accounts/xxx. Where “xxx” is the Account ID.
+To understand which actions and attributes are captured and emitted by the Chromecast Player under different event types, see [DataModel.md](./DATAMODEL.md).
 
-To register the API Key, follow the instructions found [here](https://docs.newrelic.com/docs/telemetry-data-platform/ingest-apis/introduction-event-api/).
+## Support
 
-Finally, init the CAF tracker:
+New Relic hosts and moderates an online forum where customers can interact with New Relic employees as well as other customers to get help and share best practices. Like all official New Relic open source projects, there's a related Community topic in the New Relic [Explorer's Hub](https://discuss.newrelic.com).
 
-```javascript
-nrvideo.Core.addTracker(new nrvideo.CAFTracker());
-```
+We encourage you to bring your experiences and questions to the [Explorer's Hub](https://discuss.newrelic.com) where our community members collaborate on solutions and new ideas.
 
 ## Examples
 
@@ -63,12 +80,11 @@ Check out the `samples` folder for complete usage examples.
 
 ## Known Limitations
 
-- When not using the New Relic Browser Agent, some attributes are missing, like `ASN` or `country`. See the full list [here](https://docs.newrelic.com/attribute-dictionary/?attribute_name=&events_tids%5B%5D=8302&event=PageAction).
 - Due to the way the chromecast player works, when an `END` happens, the `contentSrc` attribute is incorrect.
 
 ## Support
 
-New Relic has open-sourced this project. This project is provided AS-IS WITHOUT WARRANTY OR DEDICATED SUPPORT. Issues and contributions should be reported to the project here on GitHub.
+New Relic has open-sourced this project. Issues and contributions should be reported to the project here on GitHub.
 
 We encourage you to bring your experiences and questions to the [Explorers Hub](https://discuss.newrelic.com) where our community members collaborate on solutions and new ideas.
 
