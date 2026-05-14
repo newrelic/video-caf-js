@@ -1,7 +1,6 @@
 import nrvideo from '@newrelic/video-core'
 import { version } from '../package.json'
 import CAFAdsTracker from './ads'
-import {DEFAULT_HARVEST_TIME, DEFAULT_BUFFER_SIZE} from './constants'
 
 export default class CAFTracker extends nrvideo.VideoTracker {
 
