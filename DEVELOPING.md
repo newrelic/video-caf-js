@@ -1,4 +1,4 @@
-[![New Relic Experimental header](https://github.com/newrelic/opensource-website/raw/master/src/images/categories/Experimental.png)](https://opensource.newrelic.com/oss-category/#new-relic-experimental)
+[![Community Project header](https://github.com/newrelic/opensource-website/raw/master/src/images/categories/Community_Project.png)](https://opensource.newrelic.com/oss-category/#community-project)
 
 
 # New Relic CAF Tracker
@@ -30,7 +30,7 @@ $ npm run build
 Load **scripts** inside `dist` folder into your page.
 
 ```html
-<script src="../dist/newrelic-caf.min.js"></script>
+<script src="../dist/umd/newrelic-video-caf.min.js"></script>
 ```
 
 > If `dist` folder is not included, run `npm i && npm run build` to build it.
@@ -38,25 +38,32 @@ Load **scripts** inside `dist` folder into your page.
 
 ## Configuration
 
-To use the CAF tracker, you need the following:
+To use the CAF tracker, you need the following credentials from New Relic:
 
-1. **ACCOUNT ID**: This is the New Relic account to which you want to send the Chromecast data. For example, in the URL `https://insights.newrelic.com/accounts/xxx`, the `xxx` represents the Account ID.
+1. **LICENSE KEY**: Your New Relic Browser license key
+2. **BEACON**: Data endpoint — use `bam.nr-data.net`
+3. **APPLICATION ID**: Your New Relic application ID
 
-2. **APPLICATION TOKEN**: This is the token associated with the Entity you created for your application.
-
-3. **ENDPOINT**: Specify the endpoint based on your use case. It can be `US`, `EU`, or `staging`.
+Visit [one.newrelic.com](https://one.newrelic.com) and follow the Streaming Video & Ads onboarding flow to get these credentials.
 
 ### Initializing the CAF Tracker
 
-Once you have the required credentials, initialize the CAF tracker as follows:
+Initialize the tracker **before** calling `receiverContext.start()`:
 
 ```javascript
-nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, authCredentials = { 
-    accountId: "<ACCOUNT_ID>",
-    applicationToken: "<APPLICATION_TOKEN>",
-    endpoint: "<ENDPOINT>"
-}));
+const receiverContext = cast.framework.CastReceiverContext.getInstance();
+
+const tracker = new nrvideo.CAFTracker(receiverContext, {
+  info: {
+    licenseKey:    'YOUR_LICENSE_KEY',
+    beacon:        'bam.nr-data.net',
+    applicationID: 'YOUR_APPLICATION_ID',
+  },
+});
+
+receiverContext.start();
 ```
+
 ### Using the Tracker with Chromecast Device Emulator
 
 To test the tracker with the Chromecast Device Emulator, follow these steps:
@@ -66,11 +73,11 @@ To test the tracker with the Chromecast Device Emulator, follow these steps:
     npm i -g chromecast-device-emulator
     ```
 
-2. Add all the IPC messages from the sender to the `scenario.json` file.
+2. Add all the IPC messages from the sender to the `samples/scenario.json` file.
 
 3. Start the emulator using the following command:
     ```bash
-    cde start scenario.json
+    cde start samples/scenario.json
     ```
 
 ## Examples

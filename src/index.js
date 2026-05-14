@@ -1,6 +1,3 @@
-import nrvideo from '@newrelic/video-core'
-import Tracker from './tracker'
+import CAFTracker from './tracker'
 
-nrvideo.CAFTracker = Tracker
-
-module.exports = nrvideo
+export default CAFTracker

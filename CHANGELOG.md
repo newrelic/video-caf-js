@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [3.1.0] - 2025/06/23
+## [3.1.0] - Experimental - 2025/06/23
 ### Update
 - Updated the version of Video Core.
 

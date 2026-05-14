@@ -1,8 +1,11 @@
 <html>
 <head>
 
+    <!-- Chromecast Device Emulator polyfill (local testing only — remove for production) -->
+    <script src="https://unpkg.com/chromecast-device-emulator/dist/receiver-utils.min.js"></script>
+
     <!-- New Relic Video -->
-    <script src="../dist/newrelic-caf.min.js"></script>
+    <script src="../dist/umd/newrelic-video-caf.min.js"></script>
 
     <!-- CAF Receiver SDK -->
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
@@ -11,20 +14,31 @@
     <cast-media-player></cast-media-player>
     <script>
 
-    nrvideo.Log.level = nrvideo.Log.Levels.ALL;
-
     let receiverContext = cast.framework.CastReceiverContext.getInstance();
+
+    // Retrieve these credentials by following the Streaming Video & Ads onboarding steps in New Relic Browser (one.newrelic.com)
+    const options = {
+        info: {
+            licenseKey:    "YOUR_LICENSE_KEY",
+            beacon:        "YOUR_BEACON_URL",
+            applicationID: "YOUR_APP_ID"
+        }
+    };
+
+    const tracker = new CAFTracker(receiverContext, options);
+
     receiverContext.start();
-    receiverContext.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
-    // Add the New Relic CAF tracker to the receiver context.
-    nrvideo.Core.addTracker(new nrvideo.CAFTracker(receiverContext, authCredentials = { 
-        accountId: "<ACCOUNT_ID>",
-        applicationToken: "<APPLICATION_TOKEN>",
-        endpoint: "<ENDPOINT>"
-    }));
+    // For setting userId
+    // tracker.setUserId('userId');
 
-    let playerManager = receiverContext.getPlayerManager();
+    // For sending custom attributes
+    // tracker.sendOptions({ customData: { contentTitle: 'My Video' } });
+
+    // For sending a custom action with attributes
+    // tracker.sendCustom('CUSTOM_ACTION', 'state time', { test1: 'value1' });
+
+     let playerManager = receiverContext.getPlayerManager();
     playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
         console.log("Intercepting LOAD request");
         

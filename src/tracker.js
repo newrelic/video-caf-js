@@ -1,42 +1,31 @@
 import nrvideo from '@newrelic/video-core'
 import { version } from '../package.json'
 import CAFAdsTracker from './ads'
-import NRHarvester from './harvester';
-import {DEFAULT_HARVEST_TIME, DEFAULT_BUFFER_SIZE} from './constants'
 
 export default class CAFTracker extends nrvideo.VideoTracker {
 
   /**
-   * Constructor
+   * @param {object} receiverContext  cast.framework.CastReceiverContext.getInstance()
+   * @param {object} options
+   * @param {object} options.info
+   * @param {string} options.info.licenseKey    New Relic Browser license key
+   * @param {string} options.info.beacon        e.g. "bam.nr-data.net"
+   * @param {string} options.info.applicationID New Relic application ID
+   * @param {object} [options.config]           Optional video-core config
    */
-  constructor(receiverContext, authCredentials) {
-    if (!receiverContext) {
-      nrvideo.Log.error('Receiver context is not initialized. Please ensure the cast receiverContext is properly set up.');
+  constructor(receiverContext, options) {
+    if (!receiverContext || typeof receiverContext.getPlayerManager !== 'function') {
+      throw new Error('CAFTracker requires a valid CastReceiverContext. Pass cast.framework.CastReceiverContext.getInstance() as the first argument.');
     }
-    super(receiverContext.getPlayerManager());
+    super(receiverContext.getPlayerManager(), options);
     this.receiverContext = receiverContext;
     this.reset();
-    this.configureAuthentication(authCredentials);
-    this.initializeHarvester();
-  }
-
-  configureAuthentication(authCredentials) {
-    this.accountId = authCredentials.accountId;
-    this.licenseKey = authCredentials.applicationToken;
-    this.endpoint = authCredentials.endpoint;
-    this.setUserId("your_user_id"); // User Id
-  }
-
-  initializeHarvester() {
-    this.nrHarvester = new NRHarvester(this.licenseKey, this.endpoint, {
-        harvestInterval: DEFAULT_HARVEST_TIME,
-        maxBufferSize: DEFAULT_BUFFER_SIZE,
-    });
-    this.updateRecordCustomEvent();
+    nrvideo.Core.addTracker(this, options);
   }
 
   registerListeners() {
     /** CORE Events */
+
     this.player.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
     this.player.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, event => { this.onPlayerLoading(event) })
     this.player.addEventListener(cast.framework.events.EventType.LOADED_METADATA, event => { this.onLoadedMetadata(event) }) 
@@ -327,15 +316,6 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.mediaStatus = ev.mediaStatus
   }
 
-  updateRecordCustomEvent() {
-    window.newrelic = window.newrelic || {};
-    window.newrelic.recordCustomEvent = (eventType, attributes) => { 
-      this.nrHarvester.addEventToBuffer(
-        eventType,
-        attributes
-      );
-    };
-  }
 }
 
 // Static members
