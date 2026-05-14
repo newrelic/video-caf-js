@@ -5,11 +5,9 @@ name: Release
 # create git tags, and publish GitHub releases.
 
 on:
-  pull_request:
+  push:
     branches:
       - master
-    types:
-      - closed
   workflow_dispatch:
     inputs:
       dry-run:
@@ -32,10 +30,10 @@ jobs:
     outputs:
       new-release-published: ${{ steps.semantic.outputs.new-release-published }}
       new-release-version: ${{ steps.semantic.outputs.new-release-version }}
-    # Only run when PR is merged or workflow is manually triggered
+    # Only run on push to master or manual trigger
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.merged == true
+      github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
