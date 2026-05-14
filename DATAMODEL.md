@@ -20,6 +20,8 @@ An Attribute is a piece of data associated with an event. Attributes provide add
 - Most attributes are included with every event.
 - Some attributes are specific to certain event types, such as ad-related data sent with ad events.
 
+> **Note:** This data model represents the standard New Relic video analytics schema. Some attributes (such as `contentFps`, `adFps`) may not be available as Chromecast does not expose this data through its SDK.
+
 ## Event Type Reference
 
 ### VideoAction
