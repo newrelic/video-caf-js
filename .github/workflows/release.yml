@@ -150,3 +150,17 @@ jobs:
               ref: 'master'
             });
             console.log('✅ Triggered use-shared-publish workflow')
+
+      - name: Trigger Release Notes Docs PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ needs.release.outputs.new-release-version }}';
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-notes-docs-pr.yml',
+              ref: 'master',
+              inputs: { tag: `v${version}`, dry_run: 'false' }
+            });
+            console.log(`✅ Triggered release-notes-docs-pr.yml for v${version}`)
