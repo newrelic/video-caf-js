@@ -48,6 +48,7 @@
     "@semantic-release/npm": "^12.0.0",
     "@semantic-release/release-notes-generator": "^13.0.0",
     "babel-loader": "^8.0.0",
+    "conventional-changelog-conventionalcommits": "^7.0.2",
     "semantic-release": "^23.0.8",
     "webpack": "5.99.9",
     "webpack-cli": "5.1.4"
