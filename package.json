@@ -50,7 +50,7 @@
     "babel-loader": "^8.0.0",
     "conventional-changelog-conventionalcommits": "^7.0.2",
     "semantic-release": "^23.0.8",
-    "webpack": "5.99.9",
+    "webpack": "5.106.2",
     "webpack-cli": "5.1.4"
   }
 }
