@@ -46,7 +46,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@newrelic/video-core": "^5.0.1"
+    "@newrelic/video-core": "^5.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.5",
