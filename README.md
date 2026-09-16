@@ -160,6 +160,38 @@ const options = {
 const tracker = new CAFTracker(receiverContext, options);
 ```
 
+### Browser Player Setup
+
+**Obtain your credentials:**
+
+1. Log in to [one.newrelic.com](https://one.newrelic.com)
+2. Navigate to the video agent onboarding flow
+3. Copy your credentials: `licenseKey`, `beacon`, and `applicationID`
+
+Import from the `/browser` subpath — this build includes only the browser agent pipeline and excludes all connected-device code, keeping the bundle lean.
+
+```javascript
+import CAFTracker from '@newrelic/video-caf/browser';
+
+// 1. Get the CastReceiverContext singleton
+const receiverContext = cast.framework.CastReceiverContext.getInstance();
+
+// 2. Retrieve these credentials by following the Streaming Video & Ads onboarding steps in New Relic Browser (one.newrelic.com)
+const options = {
+  info: {
+    licenseKey:    'YOUR_LICENSE_KEY',
+    beacon:        'YOUR_BEACON_URL',
+    applicationID: 'YOUR_APPLICATION_ID',
+  },
+};
+
+// 3. Initialize tracker BEFORE receiverContext.start()
+const tracker = new CAFTracker(receiverContext, options);
+
+// 4. Start the receiver
+receiverContext.start();
+```
+
 ## Best Practices
 
 ### 1. Setting `contentTitle`
