@@ -1,12 +1,5 @@
 # CHANGELOG
 
-## [Unreleased]
-### Add
-- Browser entry point (`@newrelic/video-caf/browser`) for browser-only environments, excluding connected-device code.
-
-### Update
-- Updated the version of Video Core to 5.1.0.
-
 ## [3.1.0] - Experimental - 2025/06/23
 ### Update
 - Updated the version of Video Core.
