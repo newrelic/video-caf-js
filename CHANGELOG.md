@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [4.1.0] - 2026/09/16
+## [Unreleased]
 ### Add
 - Browser entry point (`@newrelic/video-caf/browser`) for browser-only environments, excluding connected-device code.
 
