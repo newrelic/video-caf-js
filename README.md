@@ -114,7 +114,7 @@ Before initializing the tracker, obtain your New Relic configuration:
 ### Basic Setup
 
 ```javascript
-import CAFTracker from '@newrelic/video-caf';
+import CAFTracker from '@newrelic/video-caf/browser';
 
 // 1. Get the CastReceiverContext singleton
 const receiverContext = cast.framework.CastReceiverContext.getInstance();
