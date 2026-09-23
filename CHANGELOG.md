@@ -1,3 +1,20 @@
+## [4.1.0](https://github.com/newrelic/video-caf-js/compare/v4.0.0...v4.1.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* Update workflow
+
+### New features
+
+* "upgrade to video-core v5.0.1 with browser subpath export" ([e304aed](https://github.com/newrelic/video-caf-js/commit/e304aedba165c4e33a3b1f008e22341863f8faaa))
+* Update workflow ([056e690](https://github.com/newrelic/video-caf-js/commit/056e6901d0f5ffab7a6756a6ac3c74f75746a28b))
+
+
+### Bug fixes
+
+* **NR-603084:** regenerate package-lock.json for video-core v5.0.1 ([1abc80e](https://github.com/newrelic/video-caf-js/commit/1abc80e8137cfe2a314f5520acb0da6f1b43d504))
+
 # CHANGELOG
 
 ## [3.1.0] - Experimental - 2025/06/23
