@@ -1,27 +1,22 @@
+# CHANGELOG
+
 ## [5.0.0](https://github.com/newrelic/video-caf-js/compare/v4.0.0...v5.0.0) (2026-09-24)
-
-
-### ⚠ BREAKING CHANGES
-
-* package.json#exports map added — deep imports into
-internal paths of this package will no longer resolve. Switch to the
-root export (@newrelic/video-caf) or the /browser subpath.
-
-Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>
-* Update workflow
 
 ### New features
 
-* "upgrade to video-core v5.0.1 with browser subpath export" ([e304aed](https://github.com/newrelic/video-caf-js/commit/e304aedba165c4e33a3b1f008e22341863f8faaa))
-* Update workflow ([056e690](https://github.com/newrelic/video-caf-js/commit/056e6901d0f5ffab7a6756a6ac3c74f75746a28b))
-* upgrade to video-core v5 with breaking exports change ([a137141](https://github.com/newrelic/video-caf-js/commit/a137141db7d358e1378891d92861127bcb005d39))
+- **`/browser` subpath export:** A `@newrelic/video-caf/browser` entry point is
+  now available that excludes the unused connected-device pipeline from the
+  bundled `@newrelic/video-core` dependency, keeping the bundle lean. A
+  `browser.js` filesystem shim is also included for bundlers that don't honor
+  the `exports` field.
+- **Named export:** `{ CAFTracker }` is now available as a named export alongside
+  the existing default export on both the root and `/browser` entry points.
 
+### Improvements
 
-### Bug fixes
+- **`@newrelic/video-core` updated to 5.1.0**, which includes TypeScript
+  declaration files, upstream bug fixes, and dependency patches.
 
-* **NR-603084:** regenerate package-lock.json for video-core v5.0.1 ([1abc80e](https://github.com/newrelic/video-caf-js/commit/1abc80e8137cfe2a314f5520acb0da6f1b43d504))
-
-# CHANGELOG
 
 ## [3.1.0] - Experimental - 2025/06/23
 ### Update
