@@ -38,6 +38,9 @@
             {"type": "build", "section": "Build System", "hidden": true},
             {"type": "ci", "section": "Continuous Integration", "hidden": true}
           ]
+        },
+        "writerOpts": {
+          "mainTemplate": "{{> header}}\n{{#each commitGroups}}{{#if title}}{{#each commits}}- **{{../title}}: {{subject}}**\n{{/each}}{{/if}}{{/each}}\n"
         }
       }
     ],
