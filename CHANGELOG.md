@@ -1,3 +1,6 @@
+## [5.0.1](https://github.com/newrelic/video-caf-js/compare/v5.0.0...v5.0.1) (2026-10-30)
+- **Bug fix: pin @newrelic/video-core to 5.1.1**
+
 # CHANGELOG
 
 ## [5.0.0](https://github.com/newrelic/video-caf-js/compare/v4.0.0...v5.0.0) (2026-09-24)
