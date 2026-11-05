@@ -17,7 +17,7 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   static isUsing(streamManager) {
-    return false;
+    return !!(streamManager && typeof streamManager.getStreamTime === 'function');
   }
 
   registerListeners() {
@@ -107,18 +107,66 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // Don't end the break here as there might be more ads
   }
 
-  // Ad playback / cue point / metadata events — implemented in Task 2
-  onAdStarted(event) {}
-  onAdFirstQuartile(event) {}
-  onAdMidpoint(event) {}
-  onAdThirdQuartile(event) {}
-  onAdComplete(event) {}
-  onAdSkipped(event) {}
-  onAdPaused(event) {}
-  onAdResumed(event) {}
-  onAdClicked(event) {}
-  onCuePointsChanged(event) {}
-  onTimedMetadata(event) {}
+  // Individual Ad Event Handlers
+  onAdStarted(event) {
+    this.currentAdData = this.extractAdData(event);
+    nrvideo.Log.debug('CAFDaiTracker: Ad started', this.currentAdData);
+    this.sendStart();
+  }
+
+  onAdFirstQuartile(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad first quartile');
+    this.sendAdQuartile({ quartile: 1 });
+  }
+
+  onAdMidpoint(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad midpoint');
+    this.sendAdQuartile({ quartile: 2 });
+  }
+
+  onAdThirdQuartile(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad third quartile');
+    this.sendAdQuartile({ quartile: 3 });
+  }
+
+  onAdComplete(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad complete');
+    this.sendEnd();
+    this.currentAdData = null;
+  }
+
+  onAdSkipped(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad skipped');
+    this.sendEnd({ skipped: true });
+    this.currentAdData = null;
+  }
+
+  onAdPaused(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad paused');
+    this.sendPause();
+  }
+
+  onAdResumed(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad resumed');
+    this.sendResume();
+  }
+
+  onAdClicked(event) {
+    nrvideo.Log.debug('CAFDaiTracker: Ad clicked');
+    this.sendAdClick({ url: this.getClickThroughUrl() });
+  }
+
+  // Cue Points Handler
+  onCuePointsChanged(event) {
+    this.cuePoints = this.extractCuePoints(event);
+    nrvideo.Log.debug('CAFDaiTracker: Cue points changed', this.cuePoints);
+  }
+
+  // Timed Metadata Handler
+  onTimedMetadata(event) {
+    const metadata = this.extractTimedMetadata(event);
+    nrvideo.Log.debug('CAFDaiTracker: Timed metadata', metadata);
+  }
 
   // Data Extraction Methods
   extractStreamData(event) {
@@ -147,6 +195,48 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
       };
     } catch (error) {
       nrvideo.Log.warn('CAFDaiTracker: Failed to extract ad break data', error);
+      return {};
+    }
+  }
+
+  extractAdData(event) {
+    try {
+      const ad = event.getAd();
+      return {
+        adId: ad?.getAdId?.(),
+        creativeId: ad?.getCreativeId?.(),
+        duration: ad?.getDuration?.(),
+        title: ad?.getTitle?.(),
+        description: ad?.getDescription?.(),
+        advertiserName: ad?.getAdvertiserName?.(),
+        clickThroughUrl: ad?.getClickThroughUrl?.(),
+        dealId: ad?.getDealId?.(),
+        wrapperAdIds: ad?.getWrapperAdIds?.(),
+        position: this.getAdPosition(),
+      };
+    } catch (error) {
+      nrvideo.Log.warn('CAFDaiTracker: Failed to extract ad data', error);
+      return {};
+    }
+  }
+
+  extractCuePoints(event) {
+    try {
+      return event.getCuepoints() || [];
+    } catch (error) {
+      nrvideo.Log.warn('CAFDaiTracker: Failed to extract cue points', error);
+      return [];
+    }
+  }
+
+  extractTimedMetadata(event) {
+    try {
+      return {
+        type: event.getType(),
+        data: event.getData(),
+      };
+    } catch (error) {
+      nrvideo.Log.warn('CAFDaiTracker: Failed to extract timed metadata', error);
       return {};
     }
   }
@@ -194,12 +284,92 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     return 'caf-dai';
   }
 
+  getPlayerVersion() {
+    return 'unknown';
+  }
+
+  getAdCuePoints() {
+    return this.cuePoints;
+  }
+
+  getDuration() {
+    if (this.currentAdData?.duration !== undefined) {
+      return this.currentAdData.duration * 1000;
+    }
+    return null;
+  }
+
+  getVideoId() {
+    return this.currentAdData?.adId ?? null;
+  }
+
+  getAdCreativeId() {
+    return this.currentAdData?.creativeId ?? null;
+  }
+
+  getTitle() {
+    return this.currentAdData?.title ?? null;
+  }
+
   getSrc() {
     return this.streamData?.url ?? null;
   }
 
+  getPlayhead() {
+    try {
+      return this.streamManager.getStreamTime() * 1000;
+    } catch (error) {
+      return (this.playerManager?.getCurrentTimeSec?.() ?? 0) * 1000;
+    }
+  }
+
+  getAdPartner() {
+    return 'google-dai';
+  }
+
+  getClickThroughUrl() {
+    return this.currentAdData?.clickThroughUrl ?? null;
+  }
+
+  isMuted() {
+    return this.contentTracker?.isMuted?.() ?? null;
+  }
+
+  getRenditionHeight() {
+    return null;
+  }
+
+  getRenditionWidth() {
+    return null;
+  }
+
+  getBitrate() {
+    try {
+      return this.playerManager.getStats().streamBandwidth;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  getRenditionBitrate() {
+    return this._currentBitrate;
+  }
+
+  onBitrateChanged(ev) {
+    this._currentBitrate = ev.totalBitrate;
+    this.sendRenditionChanged();
+  }
+
+  isLiveStream() {
+    return this.getStreamType() === 'live';
+  }
+
   getCurrentAdBreak() {
     return this.adBreakData;
+  }
+
+  getCurrentAd() {
+    return this.currentAdData;
   }
 
   getStreamData() {
