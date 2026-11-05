@@ -13,9 +13,7 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     this.adBreakData = null;
     this.streamData = null;
     this.cuePoints = [];
-    this.eventHandlers = null;
     this._currentBitrate = 0;
-    this.registerListeners();
   }
 
   static isUsing(streamManager) {
@@ -23,7 +21,7 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   registerListeners() {
-    if (!this.streamManager || !google?.ima?.dai?.api?.StreamEvent) {
+    if (!this.player || !google?.ima?.dai?.api?.StreamEvent) {
       nrvideo.Log.warn('CAFDaiTracker: StreamManager or DAI API not available');
       return;
     }
@@ -52,14 +50,14 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     };
 
     Object.entries(this.eventHandlers).forEach(([type, handler]) =>
-      this.streamManager.addEventListener(type, handler)
+      this.player.addEventListener(type, handler)
     );
   }
 
   unregisterListeners() {
-    if (this.streamManager && this.eventHandlers) {
+    if (this.player && this.eventHandlers) {
       Object.entries(this.eventHandlers).forEach(([type, handler]) =>
-        this.streamManager.removeEventListener(type, handler)
+        this.player.removeEventListener(type, handler)
       );
     }
     this.eventHandlers = null;

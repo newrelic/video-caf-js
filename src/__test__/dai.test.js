@@ -6,6 +6,7 @@ jest.mock('@newrelic/video-core', () => {
       this.player = player;
       this.options = options || {};
       this._isAd = false;
+      this.registerListeners();
     }
     isAd() { return this._isAd; }
     setIsAd(v) { this._isAd = v; }
