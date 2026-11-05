@@ -1,4 +1,5 @@
-import CAFTracker from './tracker'
+import CAFTracker, { CAFAdsTracker } from './tracker'
+import CAFDaiTracker from './dai'
 
 export default CAFTracker
-export { CAFTracker }
+export { CAFTracker, CAFAdsTracker, CAFDaiTracker }
