@@ -1,0 +1,87 @@
+<html>
+<head>
+
+    <!-- Chromecast Device Emulator polyfill (local testing only — remove for production) -->
+    <script src="https://unpkg.com/chromecast-device-emulator/dist/receiver-utils.min.js"></script>
+
+    <!-- New Relic Video -->
+    <script src="../../dist/umd/newrelic-video-caf.min.js"></script>
+
+    <!-- CAF Receiver SDK -->
+    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+    <!-- Google IMA DAI SDK — must be loaded globally before constructing CAFDaiTracker -->
+    <script src="https://imasdk.googleapis.com/js/sdkloader/ima3_dai.js"></script>
+</head>
+<body>
+    <cast-media-player></cast-media-player>
+    <script>
+
+    let receiverContext = cast.framework.CastReceiverContext.getInstance();
+    let playerManager = receiverContext.getPlayerManager();
+
+    // Retrieve these credentials by following the Streaming Video & Ads onboarding steps in New Relic Browser (one.newrelic.com)
+    const options = {
+        info: {
+            licenseKey:    "YOUR_LICENSE_KEY",
+            beacon:        "YOUR_BEACON_URL",
+            applicationID: "YOUR_APP_ID"
+        }
+    };
+
+    const tracker = new CAFTracker(receiverContext, options);
+
+    // UNVERIFIED ASSUMPTION: <cast-media-player> renders a real <video> element
+    // into the DOM internally (per CAF SDK docs), so this is a reasonable way to
+    // obtain the element StreamManager needs — but this has NOT been confirmed
+    // against a real Cast device or the Chromecast Device Emulator. Verify this
+    // selector resolves to the actual playback element before relying on it.
+    const videoElement = document.querySelector('video');
+    const streamManager = new google.ima.dai.api.StreamManager(videoElement);
+
+    const daiTracker = new CAFDaiTracker(streamManager, { playerManager: playerManager });
+
+    // Replaces the auto-created native CAFAdsTracker — DAI and native VMAP/VAST
+    // ad breaks are mutually exclusive per session, so only call this if the
+    // content being loaded actually uses DAI stitching.
+    tracker.setAdsTracker(daiTracker);
+
+    // Google's public DAI test assets (https://developers.google.com/ad-manager/dai/live-stream)
+    const VOD_CMS_ID = "2548831";
+    const VOD_VIDEO_ID = "tears-of-steel";
+    const LIVE_ASSET_KEY = "sN_IYUG8STe1ZzhIIE_ksA";
+
+    // This sample picks VOD vs Live off media.customData.streamType, set by the
+    // Cast sender app issuing the LOAD request (defaults to VOD if unset).
+    function buildStreamRequest(loadRequestData) {
+        const isLive = loadRequestData.media?.customData?.streamType === 'live';
+
+        if (isLive) {
+            const streamRequest = new google.ima.dai.api.LiveStreamRequest();
+            streamRequest.assetKey = LIVE_ASSET_KEY;
+            return streamRequest;
+        }
+
+        const streamRequest = new google.ima.dai.api.VODStreamRequest();
+        streamRequest.contentSourceId = VOD_CMS_ID;
+        streamRequest.videoId = VOD_VIDEO_ID;
+        return streamRequest;
+    }
+
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, loadRequestData => {
+        console.log("Intercepting LOAD request for DAI stream stitching");
+
+        return streamManager.requestStream(buildStreamRequest(loadRequestData)).then(streamData => {
+            loadRequestData.media.contentUrl = streamData.url;
+            return loadRequestData;
+        }).catch(error => {
+            console.error("DAI requestStream failed", error);
+            return loadRequestData;
+        });
+    });
+
+    receiverContext.start();
+
+    </script>
+</body>
+</html>

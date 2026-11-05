@@ -160,6 +160,54 @@ const options = {
 const tracker = new CAFTracker(receiverContext, options);
 ```
 
+### Google DAI Ad Tracking
+
+For content stitched with Google's [Dynamic Ad Insertion (DAI)](https://developers.google.com/ad-manager/dai/live-stream), use `CAFDaiTracker` instead of the default native ads tracker. This requires the Google IMA DAI SDK (`ima3_dai.js`) to be loaded globally **before** constructing `CAFDaiTracker`:
+
+```html
+<!-- Load before constructing CAFDaiTracker -->
+<script src="https://imasdk.googleapis.com/js/sdkloader/ima3_dai.js"></script>
+```
+
+```javascript
+import CAFTracker, { CAFDaiTracker } from '@newrelic/video-caf';
+
+const receiverContext = cast.framework.CastReceiverContext.getInstance();
+const tracker = new CAFTracker(receiverContext, options);
+
+// CAF's <cast-media-player> renders a real <video> element internally;
+// StreamManager needs a reference to it.
+const videoElement = document.querySelector('video');
+const streamManager = new google.ima.dai.api.StreamManager(videoElement);
+
+const daiTracker = new CAFDaiTracker(streamManager, {
+  playerManager: receiverContext.getPlayerManager(),
+});
+
+// Replaces the auto-created native CAFAdsTracker.
+tracker.setAdsTracker(daiTracker);
+
+receiverContext.getPlayerManager().setMessageInterceptor(
+  cast.framework.messages.MessageType.LOAD,
+  (loadRequestData) => {
+    return streamManager.requestStream(buildStreamRequest(loadRequestData)).then((streamData) => {
+      loadRequestData.media.contentUrl = streamData.url;
+      return loadRequestData;
+    });
+  }
+);
+
+receiverContext.start();
+```
+
+> **Important:** `setAdsTracker()` replaces the auto-created native `CAFAdsTracker`. DAI and native VMAP/VAST ad breaks are mutually exclusive per session — a given receiver session tracks either DAI ad breaks or native ad breaks, never both.
+
+**`options.playerManager`** (required) — gives `CAFDaiTracker` direct access to `getCurrentTimeSec()`, `getDurationSec()`, and `getStats()` for reading playback position, duration, and bitrate during ad breaks.
+
+**`options.contentTracker`** (optional) — a reference to the content-side tracker (e.g. `CAFTracker`/`CAFAdsTracker`) used only to read mute state via `isMuted()`. If omitted, mute state reported during DAI ad breaks is `null`.
+
+See [`samples/dai/index.html`](./samples/dai/index.html) for a complete, runnable example.
+
 ## Best Practices
 
 ### 1. Setting `contentTitle`
