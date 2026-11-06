@@ -137,7 +137,10 @@ const receiverContext = cast.framework.CastReceiverContext.getInstance();
 const tracker = new CAFTracker(receiverContext, options);
 
 const streamManager = new google.ima.dai.api.StreamManager(/* CAF-managed media element */);
-const daiTracker = new CAFDaiTracker(streamManager, { playerManager: receiverContext.getPlayerManager() });
+const daiTracker = new CAFDaiTracker(streamManager, {
+  playerManager: receiverContext.getPlayerManager(),
+  contentTracker: tracker,
+});
 tracker.setAdsTracker(daiTracker); // replaces the auto-created native CAFAdsTracker
 
 receiverContext.getPlayerManager().setMessageInterceptor(
@@ -158,27 +161,39 @@ This mirrors the hls.js/videojs integration's spirit (one explicit
 `hls.loadSource()`/a videojs plugin event to get the stitched URL into the
 player.
 
+UMD/browser-global consumers reach the class as `window.CAFTracker.CAFDaiTracker`
+— the UMD bundle is built with `libraryExport: 'default'`, so only the default
+export is reachable as a global and the DAI tracker is attached to it as a
+static (LLD §4).
+
 ## 9. Risks / open questions
 
-- **No existing test infrastructure in this repo** (`video-caf-js` has no Jest
-  config, unlike `video-hls-js`/`video-videojs-js`). The plan adds a minimal
-  Jest + jsdom setup, mirroring `video-hls-js/jest.config.js` exactly (the
+- **No existing test infrastructure in this repo** (`video-caf-js` had no Jest
+  config, unlike `video-hls-js`/`video-videojs-js`). A minimal Jest + jsdom
+  setup was added, mirroring `video-hls-js/jest.config.js` exactly (the
   installed `@newrelic/video-core` package already ships the same
   `__mock__.js` this repo would need — confirmed present at
-  `node_modules/@newrelic/video-core/__mock__.js`, version 4.1.6).
+  `node_modules/@newrelic/video-core/__mock__.js`, version 5.1.1). That shipped
+  mock omits `state` and several `send*` methods, so `src/__test__/dai.test.js`
+  declares its own base-class mock mirroring `videotracker.ts` instead.
 - `StreamManager` does not expose CAF's media element or playback stats; unlike
   hls.js (which needed an app-supplied `contentTracker` reference for bitrate
   fallback), CAF's own `PlayerManager` already exposes `getCurrentTimeSec()`,
   `getDurationSec()`, and `getStats()` directly (confirmed in
   `src/tracker.js:111-153`), so `CAFDaiTracker` reads these off its own
-  `options.playerManager` reference with no extra app wiring. The one exception
-  is mute state (`isMuted()`), which `CAFTracker` only has via a cached
+  `options.playerManager` reference with no extra app wiring. The exception is
+  mute state (`isMuted()`), which `CAFTracker` only has via a cached
   `MEDIA_STATUS` event payload, not a synchronous `PlayerManager` getter — an
-  optional `options.contentTracker` reference is accepted for this one getter
-  only (degrades to `null` if omitted).
+  optional `options.contentTracker` reference is accepted for that getter
+  (degrades to `null` if omitted). It doubles as the fallback target for
+  reporting stream errors against the content session when no `parentTracker`
+  has been set (LLD §2.2).
 - No existing DAI test fixtures in this repo; tests are written from scratch,
-  modeled on `video-videojs-js/src/ads/dai.js`'s behavior (the canonical
-  source both other integrations port from).
+  modeled on the live IMA DAI SDK surface as captured in
+  `video-hls-js/src/ads/dai.js` and its test fixtures. **Not** on
+  `video-videojs-js/src/ads/dai.js`: that file predates the discovery that
+  several accessors it calls (`StreamEvent.getAdBreak`/`getCuepoints`/
+  `getError`, `StreamManager.getStreamTime`) do not exist on the real SDK.
 
 ## 10. What's left to the builder (LLD)
 
