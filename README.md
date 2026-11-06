@@ -160,6 +160,64 @@ const options = {
 const tracker = new CAFTracker(receiverContext, options);
 ```
 
+### Google DAI Ad Tracking
+
+For content stitched with Google's [Dynamic Ad Insertion (DAI)](https://developers.google.com/ad-manager/dai/live-stream), use `CAFDaiTracker` instead of the default native ads tracker. This requires the Google IMA DAI SDK (`ima3_dai.js`) to be loaded globally **before** constructing `CAFDaiTracker`:
+
+```html
+<!-- Load before constructing CAFDaiTracker -->
+<script src="https://imasdk.googleapis.com/js/sdkloader/ima3_dai.js"></script>
+```
+
+```javascript
+import CAFTracker, { CAFDaiTracker } from '@newrelic/video-caf';
+
+const receiverContext = cast.framework.CastReceiverContext.getInstance();
+const tracker = new CAFTracker(receiverContext, options);
+
+// CAF's <cast-media-player> renders a real <video> element internally;
+// StreamManager needs a reference to it.
+const videoElement = document.querySelector('video');
+const streamManager = new google.ima.dai.api.StreamManager(videoElement);
+
+const daiTracker = new CAFDaiTracker(streamManager, {
+  playerManager: receiverContext.getPlayerManager(),
+  contentTracker: tracker,
+});
+
+// Replaces the auto-created native CAFAdsTracker.
+tracker.setAdsTracker(daiTracker);
+
+receiverContext.getPlayerManager().setMessageInterceptor(
+  cast.framework.messages.MessageType.LOAD,
+  (loadRequestData) => {
+    return streamManager.requestStream(buildStreamRequest(loadRequestData)).then((streamData) => {
+      loadRequestData.media.contentUrl = streamData.url;
+      return loadRequestData;
+    });
+  }
+);
+
+receiverContext.start();
+```
+
+> **Important:** `setAdsTracker()` replaces the auto-created native `CAFAdsTracker`. DAI and native VMAP/VAST ad breaks are mutually exclusive per session — a given receiver session tracks either DAI ad breaks or native ad breaks, never both.
+
+**`options.playerManager`** — effectively required, though not validated in the constructor: every playhead, duration, bitrate, and rendition getter reads from it (`getCurrentTimeSec()`, `getDurationSec()`, `getStats()`). Omit it and those attributes degrade to `0`/`null` rather than throwing.
+
+**`options.contentTracker`** (optional) — a reference to the `CAFTracker` instance tracking the content. Used to read mute state via `isMuted()` (`null` if omitted), and as a fallback target for reporting DAI stream errors against the content session. `setAdsTracker()` already wires the same link internally as `parentTracker`, so errors reach the content session either way; pass it to get mute state too. Do not pass a `CAFAdsTracker` — `setAdsTracker()` disposes the auto-created one, and it carries no mute state of its own.
+
+For UMD / browser-global consumers (`dist/umd/newrelic-video-caf.min.js`), the bundle exposes only `window.CAFTracker`; the DAI tracker hangs off it as `window.CAFTracker.CAFDaiTracker`:
+
+```javascript
+const daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
+  playerManager: playerManager,
+  contentTracker: tracker,
+});
+```
+
+See [`samples/dai/index.html`](./samples/dai/index.html) for a complete, runnable example.
+
 ## Best Practices
 
 ### 1. Setting `contentTitle`
