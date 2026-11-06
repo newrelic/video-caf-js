@@ -10,7 +10,7 @@
     <!-- CAF Receiver SDK -->
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
-    <!-- Google IMA DAI SDK — must be loaded globally before constructing CAFDaiTracker -->
+    <!-- Google IMA DAI SDK — must be loaded globally before constructing CAFTracker.CAFDaiTracker -->
     <script src="https://imasdk.googleapis.com/js/sdkloader/ima3_dai.js"></script>
 </head>
 <body>
@@ -39,7 +39,12 @@
     const videoElement = document.querySelector('video');
     const streamManager = new google.ima.dai.api.StreamManager(videoElement);
 
-    const daiTracker = new CAFDaiTracker(streamManager, { playerManager: playerManager });
+    // The UMD bundle exposes only CAFTracker as a global; the DAI tracker hangs
+    // off it as a static.
+    const daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
+        playerManager: playerManager,
+        contentTracker: tracker      // lets ad events report mute state
+    });
 
     // Replaces the auto-created native CAFAdsTracker — DAI and native VMAP/VAST
     // ad breaks are mutually exclusive per session, so only call this if the

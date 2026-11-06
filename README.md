@@ -182,6 +182,7 @@ const streamManager = new google.ima.dai.api.StreamManager(videoElement);
 
 const daiTracker = new CAFDaiTracker(streamManager, {
   playerManager: receiverContext.getPlayerManager(),
+  contentTracker: tracker,
 });
 
 // Replaces the auto-created native CAFAdsTracker.
@@ -202,9 +203,18 @@ receiverContext.start();
 
 > **Important:** `setAdsTracker()` replaces the auto-created native `CAFAdsTracker`. DAI and native VMAP/VAST ad breaks are mutually exclusive per session — a given receiver session tracks either DAI ad breaks or native ad breaks, never both.
 
-**`options.playerManager`** (required) — gives `CAFDaiTracker` direct access to `getCurrentTimeSec()`, `getDurationSec()`, and `getStats()` for reading playback position, duration, and bitrate during ad breaks.
+**`options.playerManager`** — effectively required, though not validated in the constructor: every playhead, duration, bitrate, and rendition getter reads from it (`getCurrentTimeSec()`, `getDurationSec()`, `getStats()`). Omit it and those attributes degrade to `0`/`null` rather than throwing.
 
-**`options.contentTracker`** (optional) — a reference to the content-side tracker (e.g. `CAFTracker`/`CAFAdsTracker`) used only to read mute state via `isMuted()`. If omitted, mute state reported during DAI ad breaks is `null`.
+**`options.contentTracker`** (optional) — a reference to the `CAFTracker` instance tracking the content. Used to read mute state via `isMuted()` (`null` if omitted), and as a fallback target for reporting DAI stream errors against the content session. `setAdsTracker()` already wires the same link internally as `parentTracker`, so errors reach the content session either way; pass it to get mute state too. Do not pass a `CAFAdsTracker` — `setAdsTracker()` disposes the auto-created one, and it carries no mute state of its own.
+
+For UMD / browser-global consumers (`dist/umd/newrelic-video-caf.min.js`), the bundle exposes only `window.CAFTracker`; the DAI tracker hangs off it as `window.CAFTracker.CAFDaiTracker`:
+
+```javascript
+const daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
+  playerManager: playerManager,
+  contentTracker: tracker,
+});
+```
 
 See [`samples/dai/index.html`](./samples/dai/index.html) for a complete, runnable example.
 
