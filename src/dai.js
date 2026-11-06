@@ -105,6 +105,12 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    */
   onStreamInitialized() {
     nrvideo.Log.debug('CAFDaiTracker: Stream initialized');
+    // A stream replaced mid-break has to close that break rather than just
+    // forget it: CAFTracker guards on video-core's isAdBreak flag, which only
+    // sendAdBreakEnd() clears, so dropping adBreakData alone would leave the
+    // flag stuck and suppress content telemetry for the rest of the session.
+    if (this.adBreakData) this.onAdBreakEnded();
+
     this.clearCurrentAd();
     this.adBreakData = null;
     this.adBreakFromPeriod = false;

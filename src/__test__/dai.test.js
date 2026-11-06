@@ -197,6 +197,28 @@ describe('CAFDaiTracker — construction & lifecycle', () => {
     expect(tracker.getStreamData()).toBeNull();
   });
 
+  // CAFTracker guards on video-core's isAdBreak flag, which only
+  // sendAdBreakEnd() clears — forgetting the break without ending it would
+  // leave that flag stuck true for the rest of the session.
+  it('closes an open break when a new stream replaces it mid-break', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    jest.spyOn(tracker, 'sendAdBreakEnd');
+    jest.spyOn(tracker, 'sendEnd');
+    sm._emit(StreamEventType.STREAM_INITIALIZED, {});
+    expect(tracker.sendEnd).toHaveBeenCalledTimes(1);
+    expect(tracker.sendAdBreakEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a break ending when no break was open', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    jest.spyOn(tracker, 'sendAdBreakEnd');
+    sm._emit(StreamEventType.STREAM_INITIALIZED, {});
+    expect(tracker.sendAdBreakEnd).not.toHaveBeenCalled();
+  });
+
   it('AD_BREAK_STARTED opens a break and calls sendAdBreakStart()', () => {
     const sm = createMockStreamManager();
     const tracker = newTracker(sm);

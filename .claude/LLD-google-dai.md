@@ -204,7 +204,7 @@ DAI SDK's own event surface, not CAF-specific:
 | StreamEvent                | Handler                | NR call(s)                                  |
 |-----------------------------|-------------------------|----------------------------------------------|
 | `LOADED`                   | `onStreamLoaded`       | `extractStreamData()` → store, **no send**   |
-| `STREAM_INITIALIZED`       | `onStreamInitialized`  | reset per-stream state, `sendDownload({ state: 'stream-initialized' })` |
+| `STREAM_INITIALIZED`       | `onStreamInitialized`  | close any open break, reset per-stream state, `sendDownload({ state: 'stream-initialized' })` |
 | `ERROR`                    | `onStreamError`        | `sendError()` on the content tracker, and on itself when a break is open |
 | `AD_BREAK_STARTED`         | `onAdBreakStarted`     | `extractAdBreakData()` then `sendAdBreakStart(adBreakAttributes())` |
 | `AD_BREAK_ENDED`           | `onAdBreakEnded`       | `sendEnd()` for an ad still in flight, then `sendAdBreakEnd(adBreakAttributes())`, clear `adBreakData` |
@@ -249,7 +249,15 @@ first implementation:
    `getAttributes()` fills and returns the very object it is handed, so passing
    internal state by reference turns `adBreakData` — and the public
    `getCurrentAdBreak()` — into the whole telemetry payload.
-6. **`ERROR` is reported against the content tracker.** `isAd()` is true here,
+6. **`STREAM_INITIALIZED` closes an open break instead of just forgetting
+   it.** It is the only safe place to drop per-stream state (cue points arrive
+   *before* their own `LOADED`, and again mid-stream, so no other event can
+   tell a fresh list from a stale one) — but a stream replaced mid-break must
+   go through `onAdBreakEnded()`, because `CAFTracker` guards on video-core's
+   `isAdBreak` flag and only `sendAdBreakEnd()` clears it. This is a CAF
+   divergence from `video-hls-js`, whose content guard reads its own
+   cue-point/break state rather than the video-core flag.
+7. **`ERROR` is reported against the content tracker.** `isAd()` is true here,
    so reporting a failed stream request only on this tracker makes it an
    `AD_ERROR`, and video-core sets `hadStartupError`/`hadPlaybackError` only
    for non-ad trackers — the most severe failure the integration can see would
