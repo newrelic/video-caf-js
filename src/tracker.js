@@ -68,6 +68,54 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   /**
+   * True while an ad is actually on screen, so content QoE events can stand
+   * down.
+   *
+   * NOT `adsTracker.state.isAdBreak`. That flag only flips at AD_BREAK_STARTED,
+   * which the IMA DAI SDK emits AFTER the playhead is already inside the ad, so
+   * CAF's PLAYING fired CONTENT_START on a pre-roll's first frame — and because
+   * video-core's goStart() is once-per-view, content startup time was then
+   * permanently measured to the ad.
+   *
+   * The arms are ordered by how much each ads tracker knows:
+   *  - isAdPlaying(), CAFDaiTracker's own answer, which covers the pre-roll
+   *    window before the break is announced. A disposed CAFDaiTracker answers
+   *    false rather than throwing — video-core's disposeAdsTracker() nulls its
+   *    player and tag but leaves this reference in place.
+   *  - getCurrentAdBreak(), for an ads tracker that tracks a break but cannot
+   *    see ahead of it.
+   *  - video-core's isAdBreak flag, which is all the auto-created CSAI
+   *    CAFAdsTracker ever moves — it has neither accessor above, so this arm is
+   *    the whole CSAI path.
+   */
+  isAdsTrackerActive () {
+    if (!this.adsTracker) return false
+
+    if (typeof this.adsTracker.isAdPlaying === 'function') {
+      return this.adsTracker.isAdPlaying()
+    }
+    if (typeof this.adsTracker.getCurrentAdBreak === 'function') {
+      return this.adsTracker.getCurrentAdBreak() != null
+    }
+    return !!this.adsTracker.state?.isAdBreak
+  }
+
+  /**
+   * Whether a content transition that is ALREADY OPEN may be closed during an
+   * ad break. It always may: video-core bills (stopTime - startTime) to
+   * totalRebufferingTime and pairs goSeekEnd with isSeeking, so holding a
+   * transition open across a break charges the whole pod to content. A stall
+   * that begins just before an ad boundary is a common SSAI case.
+   *
+   * This is the other half of the asymmetry: OPENING a content transition
+   * during a break is suppressed (or routed to the ads tracker), closing one is
+   * not.
+   */
+  canCloseContentTransition (flag) {
+    return !this.isAdsTrackerActive() || !!this.state?.[flag]
+  }
+
+  /**
    * Reads a value from a third-party receiver API, tolerating a receiver with
    * nothing loaded.
    *
@@ -247,24 +295,26 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onLoadedMetadata (ev) {
-    if (!this.adsTracker.state.isAdBreak) {
+    if (!this.isAdsTrackerActive()) {
       this.sendDownload()
     }
   }
 
   onBuffering (ev) {
     if (ev.isBuffering) {
-      if (this.adsTracker.state.isAdBreak) {
+      if (this.isAdsTrackerActive()) {
         this.adsTracker.sendBufferStart();
       } else {
         this.sendBufferStart()
       }
     }
     else {
-      if (this.adsTracker.state.isAdBreak) {
-        this.adsTracker.sendBufferEnd();
-      } else {
+      // A content buffer already open closes on the content tracker even
+      // mid-break; otherwise the stall belongs to the ad.
+      if (this.canCloseContentTransition('isBuffering')) {
         this.sendBufferEnd()
+      } else {
+        this.adsTracker.sendBufferEnd();
       }
     }
   }
@@ -274,7 +324,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onPlay (ev) {
-    if (!this.adsTracker.state.isAdBreak) {
+    // A content pause already open closes on the content tracker even
+    // mid-break — the resume is what pairs with it.
+    if (this.canCloseContentTransition('isPaused')) {
       this.sendResume()
     } else {
       this.adsTracker.sendResume()
@@ -283,7 +335,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onPause (ev) {
     if (!ev.ended) {
-      if (!this.adsTracker.state.isAdBreak) {
+      if (!this.isAdsTrackerActive()) {
         this.sendPause()
       } else {
         this.adsTracker.sendPause()
@@ -296,13 +348,13 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onPlaying (ev) {
-    if (!this.adsTracker.state.isAdBreak) {
+    if (!this.isAdsTrackerActive()) {
       this.sendStart()
-    } 
+    }
   }
 
   onSeekStart (ev) {
-    if (!this.adsTracker.state.isAdBreak) {
+    if (!this.isAdsTrackerActive()) {
       this.sendSeekStart()
     } else {
       this.adsTracker.sendSeekStart()
@@ -310,7 +362,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onSeekEnd (ev) {
-    if (!this.adsTracker.state.isAdBreak) {
+    // A content seek already open closes on the content tracker even mid-break.
+    if (this.canCloseContentTransition('isSeeking')) {
       this.sendSeekEnd()
     } else {
       this.adsTracker.sendSeekEnd()
@@ -340,7 +393,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
 
   onBitrateChanged (ev) {
     this._currentBitrate = ev.totalBitrate
-    if (!this.adsTracker.state.isAdBreak) {
+    if (!this.isAdsTrackerActive()) {
       this.sendRenditionChanged()
     } else {
       this.adsTracker.onBitrateChanged(ev)

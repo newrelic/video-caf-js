@@ -965,6 +965,88 @@ describe('CAFDaiTracker — interface CAFTracker depends on', () => {
   });
 });
 
+describe('CAFDaiTracker — isAdPlaying', () => {
+  const cuePoints = [
+    { start: 0, end: 10.01, played: false },
+    { start: 310.012, end: 320.022, played: false },
+  ];
+
+  function withCuePoints(currentTime, points = cuePoints) {
+    const sm = createMockStreamManager();
+    const pm = createMockPlayerManager(currentTime);
+    const tracker = new CAFDaiTracker(sm, { playerManager: pm });
+    sm._emit(StreamEventType.CUEPOINTS_CHANGED, {
+      getStreamData: () => ({ cuepoints: points.map((c) => ({ ...c })) }),
+    });
+    return { sm, pm, tracker };
+  }
+
+  // AD_BREAK_STARTED arrives only after playback has already entered the ad, so
+  // the break object alone misses the first moments of a pre-roll. Cue points,
+  // known ahead of playback, cover that window.
+  it('matches cue points against stream time', () => {
+    expect(withCuePoints(5).tracker.isAdPlaying()).toBe(true);
+    expect(withCuePoints(315).tracker.isAdPlaying()).toBe(true);
+    expect(withCuePoints(100).tracker.isAdPlaying()).toBe(false);
+    // End is exclusive.
+    expect(withCuePoints(10.01).tracker.isAdPlaying()).toBe(false);
+  });
+
+  // Seeking back into a watched pre-roll gets no fresh ad telemetry, so
+  // suppressing content there would lose it outright.
+  it('skips cue point windows already played', () => {
+    const { tracker } = withCuePoints(5, [{ start: 0, end: 10.01, played: true }]);
+    expect(tracker.isAdPlaying()).toBe(false);
+  });
+
+  // Cue points are a VOD-only facility in DAI — the live asset reported none on
+  // the sibling DASH integration — so this fallback is the path ALL live
+  // traffic takes, and it is the entire content guard on live.
+  it('returns true from the break object alone when there are no cue points', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    expect(tracker.getAdCuePoints()).toEqual([]);
+
+    expect(tracker.isAdPlaying()).toBe(false);
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    expect(tracker.isAdPlaying()).toBe(true);
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+    expect(tracker.isAdPlaying()).toBe(false);
+  });
+
+  // isAdPlaying reads getStreamTimeMs(), NOT getPlayhead(): cue point windows
+  // are stream times, and the ad-relative value would never fall inside a
+  // mid-roll's window.
+  it('uses stream time, not the ad-relative playhead', () => {
+    const { sm, tracker } = withCuePoints(315, [
+      { start: 310.012, end: 320.022, played: false },
+    ]);
+    // The ad started 1s into the window, so getPlayhead() reads 1000ms — which
+    // falls outside the 310-320 window and would report false.
+    sm._emit(StreamEventType.STARTED, { getAd: () => makeAd() });
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+
+    expect(tracker.getPlayhead()).toBe(315000);
+    expect(tracker.isAdPlaying()).toBe(true);
+  });
+
+  // video-core's disposeAdsTracker() calls dispose(), which nulls this
+  // tracker's player and tag, but never clears the PARENT's adsTracker
+  // reference — verified in 5.1.1 source. So the content guard keeps calling in
+  // after setAdsTracker(null).
+  it('stays inert after being disposed instead of throwing', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    expect(tracker.isAdPlaying()).toBe(true);
+
+    tracker.dispose();
+
+    expect(tracker.isAdPlaying()).toBe(false);
+    expect(() => tracker.getPlayhead()).not.toThrow();
+  });
+});
+
 // FOUND IN THE BROWSER ON THE DASH SIBLING. Every handler here runs inside the
 // IMA DAI SDK's own event dispatch, so an exception escaping one does not just
 // lose an event — it reaches the SDK, which aborts the stream request and emits

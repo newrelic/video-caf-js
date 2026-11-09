@@ -135,9 +135,9 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   onStreamInitialized() {
     nrvideo.Log.debug('CAFDaiTracker: Stream initialized');
     // A stream replaced mid-break has to close that break rather than just
-    // forget it: CAFTracker guards on video-core's isAdBreak flag, which only
-    // sendAdBreakEnd() clears, so dropping adBreakData alone would leave the
-    // flag stuck and suppress content telemetry for the rest of the session.
+    // forget it: only sendAdBreakEnd() clears video-core's own isAdBreak flag,
+    // so dropping adBreakData alone would leave the flag — and the break's
+    // playtime accounting — stuck open for the rest of the session.
     if (this.adBreakData) this.onAdBreakEnded();
 
     this.clearCurrentAd();
@@ -234,10 +234,9 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // A break this tracker opened from a period event gets no AD_BREAK_ENDED —
     // that is the premise of the fallback above — so the period end is its only
     // closing path. Without this the break stays open for the rest of the
-    // session and CAFTracker's `adsTracker.state.isAdBreak` guard suppresses
-    // all content telemetry. Periods nested inside an SDK-announced break are
-    // left alone: that break may still have more ads, and its own
-    // AD_BREAK_ENDED will close it.
+    // session and CAFTracker's content guard suppresses all content telemetry.
+    // Periods nested inside an SDK-announced break are left alone: that break
+    // may still have more ads, and its own AD_BREAK_ENDED will close it.
     if (this.adBreakFromPeriod) {
       this.onAdBreakEnded();
     }
@@ -347,9 +346,8 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    * SDK, StreamEvent.prototype is only getAd / getAdUi / getCustomAdUi /
    * getStreamData), so nothing about the break is knowable at
    * AD_BREAK_STARTED. Both fields are filled from the first ad's pod info in
-   * onAdStarted. Must stay non-null — CAFTracker's ad-break guard reads
-   * video-core's own state flag, but getCurrentAdBreak() consumers treat this
-   * object as "a break is in progress".
+   * onAdStarted. Must stay non-null — isAdPlaying(), and so CAFTracker's whole
+   * content guard, treats this object as "a break is in progress".
    */
   extractAdBreakData() {
     return { adCount: undefined, position: null };
@@ -586,6 +584,53 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    */
   getStreamTimeMs() {
     return (this.playerManager?.getCurrentTimeSec?.() ?? 0) * 1000;
+  }
+
+  /**
+   * True while an ad is on screen. Checked by CAFTracker so content QoE stands
+   * down during breaks.
+   *
+   * AD_BREAK_STARTED arrives only after playback has already entered the ad —
+   * expected SSAI behaviour, since on live the SDK cannot know about a break
+   * before its metadata arrives — so the break object alone misses the first
+   * moments of a pre-roll. That window is where CAF's PLAYING event lands, and
+   * video-core's goStart() is once-per-view, so CONTENT_START reported there
+   * measures content startup time to the ad for the rest of the session. The
+   * cue points, known ahead of playback, cover it.
+   *
+   * Known limitation: cue points are a VOD facility in DAI. The live asset
+   * reported none on the sibling DASH integration, so on live this degrades to
+   * the break object alone and a live pre-roll can still report CONTENT_START a
+   * moment early. That single arm is therefore the entire content guard on live.
+   */
+  isAdPlaying() {
+    // video-core's disposeAdsTracker() calls dispose(), which nulls this
+    // tracker's player and tag, but never clears the PARENT's adsTracker
+    // reference — verified in 5.1.1 source. So the content guard keeps calling
+    // in after setAdsTracker(null). A disposed tracker is not playing anything.
+    if (!this.player && !this.tag) return false;
+
+    if (this.adBreakData) return true;
+
+    const cuePoints = this.cuePoints;
+    if (!cuePoints?.length) return false;
+
+    // Stream time, not getPlayhead(): cue point windows are stream times, and
+    // the ad-relative value would never fall inside a mid-roll's window.
+    const streamTime = this.getStreamTimeMs() / 1000;
+    if (!Number.isFinite(streamTime)) return false;
+
+    // Skip windows already played: seeking back into a watched pre-roll gets no
+    // fresh ad telemetry, so suppressing content there would lose it outright.
+    return cuePoints.some(
+      (cue) =>
+        cue?.played !== true &&
+        typeof cue?.start === 'number' &&
+        typeof cue?.end === 'number' &&
+        cue.end > cue.start &&
+        streamTime >= cue.start &&
+        streamTime < cue.end
+    );
   }
 
   getAdPartner() {

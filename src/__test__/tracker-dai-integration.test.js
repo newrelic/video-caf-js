@@ -7,9 +7,15 @@ jest.mock('@newrelic/video-core', () => {
       this.player = player;
       this.options = options || {};
       // Mirrors the real base (videotracker.ts:74) closely enough for the
-      // ad-break guard: sendAdBreakStart/End below move isAdBreak exactly as
-      // goAdBreakStart()/goAdBreakEnd() do (videotrackerstate.ts:721-740).
-      this.state = { isAdBreak: false };
+      // ad-break guard: the send* methods below move these flags exactly as
+      // video-core's go* transitions do (videotrackerstate.ts:721-740), which
+      // is what canCloseContentTransition() reads.
+      this.state = {
+        isAdBreak: false,
+        isBuffering: false,
+        isPaused: false,
+        isSeeking: false,
+      };
       this.adsTracker = null;
       this.parentTracker = null;
       this._isAd = false;
@@ -25,13 +31,13 @@ jest.mock('@newrelic/video-core', () => {
     sendPlayerReady() {}
     sendRequest() {}
     sendDownload() {}
-    sendBufferStart() {}
-    sendBufferEnd() {}
-    sendResume() {}
-    sendPause() {}
+    sendBufferStart() { this.state.isBuffering = true; }
+    sendBufferEnd() { this.state.isBuffering = false; }
+    sendResume() { this.state.isPaused = false; }
+    sendPause() { this.state.isPaused = true; }
     sendStart() {}
-    sendSeekStart() {}
-    sendSeekEnd() {}
+    sendSeekStart() { this.state.isSeeking = true; }
+    sendSeekEnd() { this.state.isSeeking = false; }
     sendError() {}
     sendEnd() {}
     sendRenditionChanged() {}
@@ -91,13 +97,15 @@ beforeEach(() => {
   global.google = { ima: { dai: { api: { StreamEvent: { Type: StreamEventType } } } } };
 });
 
-function createMockPlayerManager() {
+function createMockPlayerManager(currentTime = 42) {
+  let time = currentTime;
   return {
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
-    getCurrentTimeSec: jest.fn(() => 42),
+    getCurrentTimeSec: jest.fn(() => time),
     getDurationSec: jest.fn(() => 600),
     getStats: jest.fn(() => ({ streamBandwidth: 512000, width: 1280, height: 720 })),
+    _setTime(t) { time = t; },
   };
 }
 
@@ -227,18 +235,80 @@ describe('CAFTracker ad-break guards work unmodified for a CAFDaiTracker-shaped 
   });
 });
 
+// The ads-activity predicates, pinned directly. isAdsTrackerActive() has to
+// serve two very different ads trackers: CAFDaiTracker, which knows it is
+// inside a pre-roll before the SDK announces the break, and the auto-created
+// CSAI CAFAdsTracker, which exposes neither isAdPlaying() nor
+// getCurrentAdBreak() and only ever moves video-core's isAdBreak flag.
+describe('CAFTracker — ads-activity predicates', () => {
+  function contentTracker() {
+    return new CAFTracker(createMockReceiverContext(createMockPlayerManager()), { info: {} });
+  }
+
+  it('prefers isAdPlaying() over the ad-break flag', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = {
+      state: { isAdBreak: false },
+      isAdPlaying: () => true,
+      getCurrentAdBreak: () => null,
+    };
+    expect(tracker.isAdsTrackerActive()).toBe(true);
+  });
+
+  it('falls back to getCurrentAdBreak() when there is no isAdPlaying()', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = { state: { isAdBreak: false }, getCurrentAdBreak: () => ({}) };
+    expect(tracker.isAdsTrackerActive()).toBe(true);
+
+    tracker.adsTracker = { state: { isAdBreak: false }, getCurrentAdBreak: () => null };
+    expect(tracker.isAdsTrackerActive()).toBe(false);
+  });
+
+  // The CSAI path. A CAFAdsTracker has neither accessor, so removing this arm
+  // would turn every CSAI break into "no ad playing" and route the whole break
+  // to content.
+  it("falls back to the CSAI tracker's isAdBreak flag", () => {
+    const tracker = contentTracker();
+    expect(tracker.adsTracker).toBeInstanceOf(CAFAdsTracker);
+    expect(tracker.adsTracker.isAdPlaying).toBeUndefined();
+    expect(tracker.adsTracker.getCurrentAdBreak).toBeUndefined();
+
+    expect(tracker.isAdsTrackerActive()).toBe(false);
+    tracker.adsTracker.state.isAdBreak = true;
+    expect(tracker.isAdsTrackerActive()).toBe(true);
+  });
+
+  it('is false when there is no ads tracker at all', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = null;
+    expect(tracker.isAdsTrackerActive()).toBe(false);
+  });
+
+  // video-core bills (stopTime - startTime) to totalRebufferingTime and pairs
+  // goSeekEnd with isSeeking, so holding a content transition open across a
+  // break charges the whole pod to content.
+  it('allows closing a content transition that is already open mid-break', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = { state: { isAdBreak: true }, isAdPlaying: () => true };
+
+    expect(tracker.canCloseContentTransition('isBuffering')).toBe(false);
+    tracker.state.isBuffering = true;
+    expect(tracker.canCloseContentTransition('isBuffering')).toBe(true);
+  });
+});
+
 // The tests above pin tracker.js's guard logic using a stand-in. These drive
-// the real CAFDaiTracker off real DAI StreamEvents, so the architectural claim
-// — CAFTracker needs no changes to support DAI — is proven end to end rather
-// than against a fixture that happens to have the right shape.
+// the real CAFDaiTracker off real DAI StreamEvents, so the integration is
+// proven end to end rather than against a fixture that happens to have the
+// right shape.
 describe('a real CAFDaiTracker attached to a real CAFTracker', () => {
-  function wireUp() {
-    const pm = createMockPlayerManager();
+  function wireUp(currentTime = 42) {
+    const pm = createMockPlayerManager(currentTime);
     const tracker = new CAFTracker(createMockReceiverContext(pm), { info: {} });
     const sm = createMockStreamManager();
     const dai = new CAFDaiTracker(sm, { playerManager: pm, contentTracker: tracker });
     tracker.setAdsTracker(dai);
-    return { tracker, dai, sm };
+    return { tracker, dai, sm, pm };
   }
 
   it('routes playback events to the DAI tracker for the duration of a break', () => {
@@ -292,6 +362,99 @@ describe('a real CAFDaiTracker attached to a real CAFTracker', () => {
     tracker.onPause({ ended: false });
     expect(tracker.sendPause).toHaveBeenCalledTimes(1);
     expect(dai.getCurrentAdBreak()).toBeNull();
+  });
+
+  // The IMA SDK emits AD_BREAK_STARTED only AFTER the playhead is already
+  // inside the ad, so a guard on video-core's isAdBreak flag lets CAF's PLAYING
+  // report CONTENT_START on the pre-roll's first frame. goStart() is
+  // once-per-view, so content startup time is then permanently measured to the
+  // ad, and ad buffering in that window bills to content rebuffering.
+  function withPreRollCuePoint(sm) {
+    sm._emit(StreamEventType.CUEPOINTS_CHANGED, {
+      getStreamData: () => ({ cuepoints: [{ start: 0, end: 10.01, played: false }] }),
+    });
+  }
+
+  it('does not report CONTENT_START inside a pre-roll the SDK has not announced yet', () => {
+    const { tracker, sm, pm } = wireUp(0);
+    withPreRollCuePoint(sm);
+    jest.spyOn(tracker, 'sendStart');
+
+    // The break object is still null: this is the window the isAdBreak flag
+    // cannot see.
+    expect(tracker.adsTracker.state.isAdBreak).toBe(false);
+    tracker.onPlaying({});
+    expect(tracker.sendStart).not.toHaveBeenCalled();
+
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+    pm._setTime(20);
+    tracker.onPlaying({});
+    expect(tracker.sendStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes buffering inside an unannounced pre-roll to the ad tracker', () => {
+    const { tracker, dai, sm } = wireUp(0);
+    withPreRollCuePoint(sm);
+    jest.spyOn(tracker, 'sendBufferStart');
+    jest.spyOn(dai, 'sendBufferStart');
+
+    tracker.onBuffering({ isBuffering: true });
+    expect(dai.sendBufferStart).toHaveBeenCalledTimes(1);
+    expect(tracker.sendBufferStart).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the content download event inside an unannounced pre-roll', () => {
+    const { tracker, sm } = wireUp(0);
+    withPreRollCuePoint(sm);
+    jest.spyOn(tracker, 'sendDownload');
+
+    tracker.onLoadedMetadata({});
+    expect(tracker.sendDownload).not.toHaveBeenCalled();
+  });
+
+  // The open/close asymmetry. Opening a content transition during a break is
+  // suppressed; closing one that is ALREADY OPEN is not, or video-core bills
+  // the whole pod to content rebuffering.
+  it('closes a content buffer that was already open when the break started', () => {
+    const { tracker, dai, sm } = wireUp();
+    jest.spyOn(tracker, 'sendBufferEnd');
+    jest.spyOn(dai, 'sendBufferEnd');
+
+    tracker.onBuffering({ isBuffering: true });
+    expect(tracker.state.isBuffering).toBe(true);
+
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    tracker.onBuffering({ isBuffering: false });
+
+    expect(tracker.sendBufferEnd).toHaveBeenCalledTimes(1);
+    expect(dai.sendBufferEnd).not.toHaveBeenCalled();
+  });
+
+  it('closes a content seek that was already open when the break started', () => {
+    const { tracker, dai, sm } = wireUp();
+    jest.spyOn(tracker, 'sendSeekEnd');
+    jest.spyOn(dai, 'sendSeekEnd');
+
+    tracker.onSeekStart({});
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    tracker.onSeekEnd({});
+
+    expect(tracker.sendSeekEnd).toHaveBeenCalledTimes(1);
+    expect(dai.sendSeekEnd).not.toHaveBeenCalled();
+  });
+
+  it('closes a content pause that was already open when the break started', () => {
+    const { tracker, dai, sm } = wireUp();
+    jest.spyOn(tracker, 'sendResume');
+    jest.spyOn(dai, 'sendResume');
+
+    tracker.onPause({ ended: false });
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    tracker.onPlay({});
+
+    expect(tracker.sendResume).toHaveBeenCalledTimes(1);
+    expect(dai.sendResume).not.toHaveBeenCalled();
   });
 
   // A DAI stream ERROR is reported on the CONTENT tracker, and a failed stream
