@@ -17,6 +17,9 @@ jest.mock('@newrelic/video-core', () => {
     }
     isAd() { return this._isAd; }
     setIsAd(v) { this._isAd = v; }
+    // video-core's getAttributes() FILLS AND RETURNS the object it is handed
+    // (verified in 5.1.1), and it is where every player getter is called from.
+    getAttributes(att) { return att || {}; }
     registerListeners() {}
     unregisterListeners() {}
     sendPlayerReady() {}
@@ -108,12 +111,53 @@ const StreamEventType = {
   CUEPOINTS_CHANGED: 'cuepointsChanged',
 };
 
+// removeEventListener matches on the HANDLER REFERENCE, as the real
+// StreamManager does. Ignoring the second argument made a tracker that removed
+// functions other than the ones it registered look clean.
 function createMockStreamManager() {
   const listeners = {};
   return {
     addEventListener: jest.fn((type, cb) => { listeners[type] = cb; }),
-    removeEventListener: jest.fn((type) => { delete listeners[type]; }),
+    removeEventListener: jest.fn((type, cb) => {
+      if (listeners[type] === cb) delete listeners[type];
+    }),
+    contentTimeForStreamTime: jest.fn((streamTime) => streamTime),
     _emit(type, event) { if (listeners[type]) listeners[type](event); },
+    _listenerCount() { return Object.keys(listeners).length; },
+  };
+}
+
+/**
+ * A receiver with nothing loaded — the state a failed DAI stream request leaves
+ * it in, and precisely when onStreamError collects content attributes.
+ *
+ * createMockPlayerManager() never throws, which is what hid the unguarded
+ * getters. Every call here throws instead, and getSenders() returns a list
+ * whose entry does not resolve to a Sender: the real
+ * CastReceiverContext.getSenders() maps sender ids through an accessor that
+ * returns null for an id it cannot resolve (verified in the v3 receiver
+ * bundle), so `getSenders()[0].userAgent` is a reachable TypeError.
+ */
+function createIdleReceiverContext() {
+  const explode = () => { throw new Error('no media loaded') };
+  const playerManager = {
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    getCurrentTimeSec: jest.fn(explode),
+    getDurationSec: jest.fn(explode),
+    getPlaybackRate: jest.fn(explode),
+    getPreferredTextLanguage: jest.fn(explode),
+    getMediaInformation: jest.fn(explode),
+    getStats: jest.fn(explode),
+    getPlayerState: jest.fn(explode),
+    getLiveSeekableRange: jest.fn(explode),
+  };
+  return {
+    playerManager,
+    receiverContext: {
+      getPlayerManager: () => playerManager,
+      getSenders: () => [undefined],
+    },
   };
 }
 
@@ -248,6 +292,41 @@ describe('a real CAFDaiTracker attached to a real CAFTracker', () => {
     tracker.onPause({ ended: false });
     expect(tracker.sendPause).toHaveBeenCalledTimes(1);
     expect(dai.getCurrentAdBreak()).toBeNull();
+  });
+
+  // A DAI stream ERROR is reported on the CONTENT tracker, and a failed stream
+  // request is exactly when the receiver has nothing loaded. The attribute
+  // collection that follows runs inside the IMA SDK's event dispatch, so a
+  // throwing receiver getter aborts the stream request and nothing plays.
+  it('survives a DAI stream error raised while the receiver is idle', () => {
+    const { receiverContext } = createIdleReceiverContext();
+    const tracker = new CAFTracker(receiverContext, { info: {} });
+    const sm = createMockStreamManager();
+    const dai = new CAFDaiTracker(sm, {
+      playerManager: receiverContext.getPlayerManager(),
+      contentTracker: tracker,
+    });
+    tracker.setAdsTracker(dai);
+    jest.spyOn(tracker, 'sendError');
+
+    expect(() =>
+      sm._emit(StreamEventType.ERROR, {
+        getStreamData: () => ({ errorMessage: 'Stream initialization failed' }),
+      })
+    ).not.toThrow();
+    expect(tracker.sendError).toHaveBeenCalledTimes(1);
+  });
+
+  it('collects content attributes from an idle receiver without throwing', () => {
+    const { receiverContext } = createIdleReceiverContext();
+    const tracker = new CAFTracker(receiverContext, { info: {} });
+
+    expect(() => tracker.getAttributes({})).not.toThrow();
+    expect(tracker.getAttributes({}).senderUserAgent).toBeUndefined();
+    expect(tracker.getPlayhead()).toBe(0);
+    expect(tracker.getDuration()).toBeNull();
+    expect(tracker.getPlayrate()).toBeNull();
+    expect(tracker.getLanguage()).toBeNull();
   });
 
   it('reports every ad in a two-break session, not just the first', () => {

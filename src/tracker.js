@@ -67,12 +67,45 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this._currentBitrate = 0
   }
 
+  /**
+   * Reads a value from a third-party receiver API, tolerating a receiver with
+   * nothing loaded.
+   *
+   * Under DAI that state is routine rather than exceptional: a failed stream
+   * request leaves the receiver IDLE, and that is exactly when CAFDaiTracker
+   * reports the error on THIS tracker and video-core collects content
+   * attributes from it.
+   *
+   * It matters far more than a missing attribute. CAFDaiTracker's handlers run
+   * inside the IMA DAI SDK's own event dispatch, so an exception escaping
+   * attribute collection reaches the SDK, which aborts the stream request and
+   * emits an empty ERROR — observed on the sibling DASH integration, where
+   * nothing played at all. A telemetry library must not take the stream down
+   * with it.
+   */
+  readFromPlayer (read, fallback = null) {
+    try {
+      const value = read()
+      return value === undefined ? fallback : value
+    }
+    catch (e) {
+      // Routine before media is loaded, so not worth logging on every event;
+      // the absent attribute is the signal.
+      return fallback
+    }
+  }
+
   getAttributes (att) {
     att = super.getAttributes(att)
 
-    if (this.receiverContext.getSenders().length != 0) {
-      att.senderUserAgent = this.receiverContext.getSenders()[0].userAgent
-    }
+    // getSenders() maps sender ids through an accessor that answers null for
+    // one it cannot resolve (verified in the v3 receiver bundle), so a
+    // non-empty list can still hold no Sender and `[0].userAgent` is a
+    // reachable TypeError.
+    const userAgent = this.readFromPlayer(
+      () => this.receiverContext.getSenders()[0].userAgent
+    )
+    if (userAgent != null) att.senderUserAgent = userAgent
 
     return att
   }
@@ -109,7 +142,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getPlayhead () {
-    return this.player.getCurrentTimeSec() * 1000
+    const time = this.readFromPlayer(() => this.player.getCurrentTimeSec(), 0)
+    if (typeof time !== 'number' || !Number.isFinite(time)) return 0
+    return time * 1000
   }
 
   getDuration () {
@@ -194,11 +229,11 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   getPlayrate () {
-    return this.player.getPlaybackRate()
+    return this.readFromPlayer(() => this.player.getPlaybackRate())
   }
 
   getLanguage () {
-    return this.player.getPreferredTextLanguage()
+    return this.readFromPlayer(() => this.player.getPreferredTextLanguage())
   }
 
   /** CORE Events Listeners */

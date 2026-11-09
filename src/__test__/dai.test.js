@@ -93,13 +93,21 @@ beforeEach(() => {
 // Note there is NO getStreamTime: an earlier version of this fixture invented
 // one, which hid the fact that getPlayhead() always took its fallback path and
 // that isUsing() could never match a real StreamManager.
+// removeEventListener matches on the HANDLER REFERENCE, as the real
+// StreamManager (and EventTarget) does. An earlier fixture ignored the second
+// argument, so a tracker that registered one function and tried to remove a
+// different one still looked like it had cleaned up — exactly the leak a
+// handler wrapper introduces if it stores the unwrapped references.
 function createMockStreamManager() {
   const listeners = {};
   return {
     addEventListener: jest.fn((type, cb) => { listeners[type] = cb; }),
-    removeEventListener: jest.fn((type) => { delete listeners[type]; }),
+    removeEventListener: jest.fn((type, cb) => {
+      if (listeners[type] === cb) delete listeners[type];
+    }),
     contentTimeForStreamTime: jest.fn((streamTime) => streamTime),
     _emit(type, event) { if (listeners[type]) listeners[type](event); },
+    _listenerCount() { return Object.keys(listeners).length; },
   };
 }
 
@@ -165,6 +173,10 @@ describe('CAFDaiTracker — construction & lifecycle', () => {
     const tracker = newTracker(sm);
     tracker.unregisterListeners();
     expect(sm.removeEventListener).toHaveBeenCalledTimes(HANDLED_EVENT_TYPES.length);
+    // Counting the calls is not enough: the StreamManager matches on the
+    // handler reference, so removing something other than what was registered
+    // leaves every listener in place.
+    expect(sm._listenerCount()).toBe(0);
   });
 
   // The stitched stream being ready is not an ad request. Spending the request
@@ -950,6 +962,64 @@ describe('CAFDaiTracker — interface CAFTracker depends on', () => {
     const own = Object.getOwnPropertyNames(CAFDaiTracker.prototype);
     expect(own).not.toContain('sendAdBreakStart');
     expect(own).not.toContain('sendAdBreakEnd');
+  });
+});
+
+// FOUND IN THE BROWSER ON THE DASH SIBLING. Every handler here runs inside the
+// IMA DAI SDK's own event dispatch, so an exception escaping one does not just
+// lose an event — it reaches the SDK, which aborts the stream request and emits
+// an empty ERROR. Nothing played at all.
+//
+// The reachable chain on CAF is onStreamError -> contentTracker.sendError() ->
+// CAFTracker.getAttributes(), which reads the receiver and the PlayerManager.
+// The individual getters are hardened in CAFTracker, but this contains the
+// whole class: the thrown value comes from a third-party player through
+// video-core's attribute collection, so the next such throw would break the
+// customer's playback the same way.
+describe('CAFDaiTracker — never throws into the SDK dispatch', () => {
+  it('swallows and logs an exception from any handler', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+
+    // Exactly what was observed on dash.js: a bare string, not an Error, so
+    // `error.message` is undefined.
+    tracker.sendDownload = () => {
+      throw 'You must first call initialize() and set a valid source';
+    };
+
+    expect(() => sm._emit(StreamEventType.STREAM_INITIALIZED, {})).not.toThrow();
+    expect(nrvideo.Log.error).toHaveBeenCalled();
+  });
+
+  it('keeps handling later events after one handler threw', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    tracker.sendAdBreakStart = () => {
+      throw new Error('attribute collection exploded');
+    };
+
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    // The break still opened: state is updated before the send.
+    expect(tracker.getCurrentAdBreak()).not.toBeNull();
+
+    tracker.sendAdQuartile = jest.fn();
+    sm._emit(StreamEventType.STARTED, { getAd: () => makeAd() });
+    sm._emit(StreamEventType.FIRST_QUARTILE, {});
+    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ quartile: 1 });
+  });
+
+  // The wrapper has to be stored, not recomputed: the StreamManager removes by
+  // handler reference, so unregistering the unwrapped functions would leave
+  // every listener attached for the life of the receiver.
+  it('still removes the wrapped listeners on unregisterListeners()', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    tracker.unregisterListeners();
+
+    expect(sm._listenerCount()).toBe(0);
+    sm.removeEventListener.mock.calls.forEach(([type, handler]) => {
+      expect(sm.addEventListener).toHaveBeenCalledWith(type, handler);
+    });
   });
 });
 

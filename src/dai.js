@@ -48,7 +48,30 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     }
     const StreamEvent = sdk.StreamEvent.Type;
 
-    this.eventHandlers = {
+    /**
+     * Every handler runs inside the IMA DAI SDK's own event dispatch, so an
+     * exception escaping one does not just lose an event — it reaches the SDK,
+     * which aborts the stream request and emits an empty ERROR. Observed on the
+     * sibling DASH integration against the live asset: nothing played at all.
+     *
+     * The reachable chain here is onStreamError -> contentTracker.sendError()
+     * -> CAFTracker.getAttributes(), which reads the CastReceiverContext and
+     * the PlayerManager while the receiver is IDLE — the very state a failed
+     * stream request leaves it in. Those getters are hardened in CAFTracker,
+     * and this contains the whole class: the thrown value comes from a
+     * third-party player through video-core's attribute collection, so the next
+     * such throw would break the customer's playback the same way. A telemetry
+     * library must never take the stream down with it.
+     */
+    const guard = (type, handler) => (event) => {
+      try {
+        handler(event);
+      } catch (error) {
+        nrvideo.Log.error(`CAFDaiTracker: handler for '${type}' failed`, error);
+      }
+    };
+
+    const handlers = {
       [StreamEvent.LOADED]: this.onStreamLoaded.bind(this),
       [StreamEvent.STREAM_INITIALIZED]: this.onStreamInitialized.bind(this),
       [StreamEvent.ERROR]: this.onStreamError.bind(this),
@@ -68,6 +91,12 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
       [StreamEvent.VIDEO_CLICKED]: this.onAdClicked.bind(this),
       [StreamEvent.CUEPOINTS_CHANGED]: this.onCuePointsChanged.bind(this),
     };
+
+    // Store the GUARDED references, so unregisterListeners removes the same
+    // functions that were registered.
+    this.eventHandlers = Object.fromEntries(
+      Object.entries(handlers).map(([type, handler]) => [type, guard(type, handler)])
+    );
 
     Object.entries(this.eventHandlers).forEach(([type, handler]) =>
       this.player.addEventListener(type, handler)
