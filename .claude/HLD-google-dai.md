@@ -109,12 +109,23 @@ alongside the pre-existing `CAFAdsTracker`.
                                                  native VMAP/VAST breaks)
 ```
 
-- **`CAFTracker`** (existing, `src/tracker.js`): **no code changes required**
-  (see LLD §3 for why — this is the key architectural finding of this design).
-  Its existing ad-break guard (`this.adsTracker.state.isAdBreak`, driven by the
-  generic `video-core` state machine) already works for any ads-tracker
-  subclass that calls the inherited `sendAdBreakStart()`/`sendAdBreakEnd()`,
-  which `CAFDaiTracker` will.
+- **`CAFTracker`** (existing, `src/tracker.js`): **changes required** (see
+  LLD §3). This design originally asserted that its existing ad-break guard
+  (`this.adsTracker.state.isAdBreak`, driven by the generic `video-core` state
+  machine) was sufficient for any ads tracker calling the inherited
+  `sendAdBreakStart()`/`sendAdBreakEnd()`. That premise was **wrong for SSAI**,
+  in three ways found in review:
+  1. `isAdBreak` only flips at `AD_BREAK_STARTED`, which the IMA SDK emits
+     *after* the playhead is already inside the ad, so CAF's `PLAYING` reported
+     `CONTENT_START` on a pre-roll's first frame — and `goStart()` is
+     once-per-view, so content startup time was permanently measured to the ad.
+     The guards now read `isAdsTrackerActive()` /
+     `canCloseContentTransition()`.
+  2. `getPlayhead()`/`getDuration()` reported the stitched clock, which
+     includes every ad played so far, so they now convert through the ads
+     tracker (`toContentTime()`).
+  3. `contentIsLive` came from an `isLive()` CAFTracker never overrode, so it
+     was null on every event.
 - **`CAFAdsTracker`** (existing, `src/ads.js`): unchanged. Continues to handle
   native CAF `BreakManager` events for VMAP/VAST breaks, auto-created in
   `CAFTracker.registerListeners()` exactly as today.

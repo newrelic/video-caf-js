@@ -131,7 +131,7 @@ Same pattern as `video-hls-js/src/ads/dai.js`: build an `eventHandlers` map
 keyed by `StreamEvent.Type`, register via `addEventListener`, tear down the
 same map in `unregisterListeners()`.
 
-Two details that are easy to get wrong:
+Three details that are easy to get wrong:
 
 - Register against **`this.player`**, not `this.streamManager`. The base
   constructor calls `registerListeners()` from `setPlayer()`, which runs before
@@ -142,6 +142,14 @@ Two details that are easy to get wrong:
   protect an undeclared identifier: `google?.ima` throws a `ReferenceError`
   when the IMA DAI script has not loaded, which is exactly the case the guard
   exists for.
+- **Wrap every handler, and store the wrapped reference.** Each handler runs
+  inside the IMA DAI SDK's own event dispatch, so an exception escaping one does
+  not merely lose an event — it reaches the SDK, which aborts the stream request
+  and emits an empty `ERROR`. Observed on the sibling DASH integration against
+  the live asset: nothing played at all. The reachable chain on CAF is
+  `onStreamError` → `contentTracker.sendError()` → `CAFTracker.getAttributes()`
+  (§3.4). Registering the wrapper but storing the unwrapped handler leaks every
+  listener, because the real `StreamManager` removes by reference.
 
 ```js
 registerListeners() {
@@ -153,7 +161,16 @@ registerListeners() {
   }
   const StreamEvent = sdk.StreamEvent.Type;
 
-  this.eventHandlers = {
+  // No handler exception may reach the SDK — see below.
+  const guard = (type, handler) => (event) => {
+    try {
+      handler(event);
+    } catch (error) {
+      nrvideo.Log.error(`CAFDaiTracker: handler for '${type}' failed`, error);
+    }
+  };
+
+  const handlers = {
     [StreamEvent.LOADED]: this.onStreamLoaded.bind(this),
     [StreamEvent.STREAM_INITIALIZED]: this.onStreamInitialized.bind(this),
     [StreamEvent.ERROR]: this.onStreamError.bind(this),
@@ -173,6 +190,12 @@ registerListeners() {
     [StreamEvent.VIDEO_CLICKED]: this.onAdClicked.bind(this),
     [StreamEvent.CUEPOINTS_CHANGED]: this.onCuePointsChanged.bind(this),
   };
+
+  // Store the GUARDED references, so unregisterListeners removes the same
+  // functions that were registered.
+  this.eventHandlers = Object.fromEntries(
+    Object.entries(handlers).map(([type, handler]) => [type, guard(type, handler)])
+  );
 
   Object.entries(this.eventHandlers).forEach(([type, handler]) =>
     this.player.addEventListener(type, handler)
@@ -235,11 +258,22 @@ first implementation:
    ad error) would block `AD_START` for every later ad in the session.
 3. **A break opened from `AD_PERIOD_STARTED` must close at
    `AD_PERIOD_ENDED`.** Bumpers and some live breaks fire only period events,
-   with no `AD_BREAK_ENDED` to close them — leaving `state.isAdBreak` true for
-   the rest of the session, which makes `CAFTracker`'s guard suppress *all*
+   with no `AD_BREAK_ENDED` to close them — leaving the break open for the rest
+   of the session, which makes `CAFTracker`'s content guard suppress *all*
    content telemetry. The `adBreakFromPeriod` flag distinguishes a break this
    tracker opened itself from one the SDK announced (the latter is left alone;
    its own `AD_BREAK_ENDED` closes it).
+
+   **A real `AD_BREAK_STARTED` takes ownership of the break and clears that
+   flag**, and adopts a period-opened break rather than re-announcing it. The
+   ordering `period-start → break-start → period-end → break-end` is otherwise
+   fatal: `AD_PERIOD_ENDED` closes the SDK's own break early, ending the
+   in-flight ad, sending `AD_BREAK_END` and dropping the content guard while the
+   pod's remaining ads are still playing — then the genuine `AD_BREAK_ENDED` is
+   swallowed. The measured ordering on the sibling DASH integration is the
+   opposite, which hides this, and CAF has no cue-point fallback behind the
+   break object on live. Adopting rather than re-announcing also preserves the
+   `position`/`adCount` that `onAdStarted` backfilled.
 4. **Quartiles and clicks are gated on `hasAdInFlight()`.** Joining a live
    stream mid-break, the SDK reports quartiles for an ad whose `STARTED` never
    arrived; counting those makes quartiles outnumber ad starts and breaks
@@ -253,10 +287,8 @@ first implementation:
    it.** It is the only safe place to drop per-stream state (cue points arrive
    *before* their own `LOADED`, and again mid-stream, so no other event can
    tell a fresh list from a stale one) — but a stream replaced mid-break must
-   go through `onAdBreakEnded()`, because `CAFTracker` guards on video-core's
-   `isAdBreak` flag and only `sendAdBreakEnd()` clears it. This is a CAF
-   divergence from `video-hls-js`, whose content guard reads its own
-   cue-point/break state rather than the video-core flag.
+   go through `onAdBreakEnded()`, because only `sendAdBreakEnd()` clears
+   video-core's own `isAdBreak` flag and the break's playtime accounting.
 7. **`ERROR` is reported against the content tracker.** `isAd()` is true here,
    so reporting a failed stream request only on this tracker makes it an
    `AD_ERROR`, and video-core sets `hadStartupError`/`hadPlaybackError` only
@@ -275,14 +307,14 @@ no `getAdBreak()`, no `getCuepoints()`, no `getError()`, no `getType()`/
 Each helper wraps its reads in try/catch and logs a warning on failure:
 
 - `extractStreamData(event)` → `{ streamId, url }` from `event.getStreamData()`.
-  No `streamType` snapshot: `getStreamType()` derives it from the receiver's
-  duration, which is not known this early in the stream, so a snapshot taken
-  here would pin every stream to `'vod'` for its whole life.
+  No `streamType` snapshot: `getStreamType()` derives it from the content
+  tracker's live flag, which the receiver cannot answer this early, so a
+  snapshot taken here would pin every stream to `'vod'` for its whole life.
 - `extractAdBreakData()` → `{ adCount: undefined, position: null }`. Nothing
   about the break is knowable at `AD_BREAK_STARTED` (no ad-break accessor
   exists); both fields are backfilled from the first ad's pod info in
-  `onAdStarted`. Must stay non-null — `getCurrentAdBreak()` consumers read it as
-  "a break is in progress".
+  `onAdStarted`. Must stay non-null — `isAdPlaying()` (§2.5.2), and so
+  `CAFTracker`'s whole content guard, reads it as "a break is in progress".
 - `extractAdData(event)` → `{ adId, creativeId, duration, title, description,
   advertiserName, dealId, wrapperAdIds, clickThroughUrl, position, adCount }`
   from `event.getAd()`. Each accessor is read **independently** through a small
@@ -358,7 +390,9 @@ getAdPosition() {
 | `getStreamTimeMs()`      | `(this.playerManager?.getCurrentTimeSec?.() ?? 0) * 1000`                 |
 | `getAdPartner()`         | `'google-dai'` (must match the hls.js/videojs value exactly — cross-player dashboard queries depend on this being identical) |
 | `getClickThroughUrl()`   | `this.currentAdData?.clickThroughUrl ?? null`                             |
-| `getStreamType()`        | `'live'` / `'vod'` / `null`, from the Cast receiver's `getMediaInformation().streamType` (`LIVE` / `BUFFERED` / `OTHER`). Derived fresh on every call — never snapshotted into `streamData` (§2.3). **Not** duration-based: a DAI live stream reports a finite DVR window, not `Infinity`, so the old test reported every live stream as `vod` |
+| `getStreamType()`        | `'live'` / `'vod'` / `null`, from `contentTracker.isLive()` (§3.3), as on both siblings. Derived fresh on every call — never snapshotted into `streamData` (§2.3). **Not** `getMediaInformation().streamType`: that is what the *sender* declared in the LOAD request, and when the sender omits it the receiver fills it in from a duration test (`duration === -1 \|\| duration === Infinity ? 'LIVE' : 'BUFFERED'`, verified in the v3 bundle) — which reports every live DAI stream as `BUFFERED`, since a DAI live stream is a finite DVR window rather than `Infinity` |
+| `isAdPlaying()`          | the content guard's preferred answer — see §2.5.2 |
+| `contentTimeForStreamTime(t)` | stream seconds → content seconds via the StreamManager, `undefined` when it cannot convert — see §2.5.3 |
 | `isMuted()`              | `this.contentTracker?.isMuted?.() ?? null` (CAF has no synchronous mute getter independent of `CAFTracker`'s cached `MEDIA_STATUS` payload — see HLD §9) |
 | `getRenditionHeight()` / `getRenditionWidth()` | `this.playerManager.getStats().height` / `.width` in try/catch, exactly as `CAFTracker` reads them (`src/tracker.js:137-153`). The stitched stream is decoded by CAF's own player during ads, so these are available — unlike hls.js, which has to delegate to a content tracker |
 
@@ -377,6 +411,37 @@ There is deliberately **no** `StreamManager` call here. The live SDK exposes no
 the current one. An earlier implementation called the nonexistent
 `getStreamTime()` inside a try/catch and silently took its fallback path on
 every single read.
+
+#### 2.5.2 `isAdPlaying()` — the content guard's answer
+
+True while an ad is on screen; `CAFTracker.isAdsTrackerActive()` (§3.1) prefers
+it over every other signal. Two arms, plus a disposal check:
+
+- `adBreakData != null` — a break the SDK has announced.
+- otherwise, a cue point window containing the current **stream** time
+  (`getStreamTimeMs()`, never `getPlayhead()`, which is ad-relative and would
+  never fall inside a mid-roll's window), end-exclusive, skipping windows
+  already `played` — seeking back into a watched pre-roll gets no fresh ad
+  telemetry, so suppressing content there would lose it outright. This arm is
+  what covers the pre-roll before `AD_BREAK_STARTED` arrives.
+- `!this.player && !this.tag` → false. video-core's `disposeAdsTracker()` calls
+  `dispose()`, which nulls this tracker's `player` and `tag` but never clears
+  the **parent's** `adsTracker` reference (verified in 5.1.1), so the content
+  guard keeps calling in after `setAdsTracker(null)`.
+
+Known limitation: cue points are a VOD facility in DAI — the live asset
+reported none on the sibling DASH integration — so on live this degrades to the
+break object alone, and a live pre-roll can still report `CONTENT_START` a
+moment early. That single arm is the entire content guard on live.
+
+#### 2.5.3 `contentTimeForStreamTime(streamTime)`
+
+Delegates to the StreamManager, in **seconds** both ways, and returns
+`undefined` when the SDK cannot convert — including on a disposed tracker — so
+`CAFTracker.toContentTime()` (§3.2) keeps reporting stream time rather than a
+wrong number. Measured on the sibling DASH integration: on VOD it subtracts the
+ad time played so far (gap exactly 10.010 after a 10.01s pre-roll, and 0 during
+it); on live it is an identity, for both the playhead and the DVR duration.
 
 ### 2.6 Bitrate during ad playback
 
@@ -417,49 +482,111 @@ onBitrateChanged(ev) {
 `clearCurrentAd()` (drops `currentAdData` *and* `adStartStreamTime` together,
 §2.5.1) and `hasAdInFlight()` (the quartile/click guard, §2.2).
 
-## 3. `src/tracker.js` (`CAFTracker`) changes — **none required**
+## 3. `src/tracker.js` (`CAFTracker`) changes — **required**
 
-This is the key difference from the hls.js design (which needed a new
-`isAdsTrackerActive()` method and four new guard call sites). Here's the exact
-reasoning, verified line-by-line against the current `src/tracker.js` and
-`video-core-js/src/videotrackerstate.ts`, so the builder doesn't have to
-re-derive it:
+This section originally claimed the opposite, and that claim was the root cause
+of two critical review findings. The reasoning below replaces it.
 
-1. Every place `tracker.js` currently guards on ad state does so via
-   `this.adsTracker.state.isAdBreak` (`onLoadedMetadata`, `onBuffering`, `onPlay`,
-   `onPause`, `onPlaying`, `onSeekStart`, `onSeekEnd`, `onBitrateChanged` —
-   `src/tracker.js:215,222,229,242,251,264,270,278,308`).
-2. `isAdBreak` is a **generic** field on `VideoTrackerState`
-   (`videotrackerstate.ts:17`), set `true` by `goAdBreakStart()`
-   (`videotrackerstate.ts:721-724`) and `false` by `goAdBreakEnd()`
-   (`videotrackerstate.ts:735-740`) — both called generically by the inherited
-   base methods `sendAdBreakStart()`/`sendAdBreakEnd()`
-   (`videotracker.ts:1055-1082`), **not** by anything `CAFAdsTracker`-specific.
-3. `CAFDaiTracker.onAdBreakStarted()`/`onAdBreakEnded()` (§2.2) call exactly
-   those same inherited `sendAdBreakStart()`/`sendAdBreakEnd()` methods. So
-   `this.adsTracker.state.isAdBreak` reads correctly regardless of whether
-   `this.adsTracker` is a `CAFAdsTracker` or a `CAFDaiTracker` — **no change
-   needed to any of the eight guard call sites above.**
-4. The one call that is genuinely `CAFAdsTracker`-specific (not inherited from
-   the base class) is `this.adsTracker.onBitrateChanged(ev)`
-   (`src/tracker.js:311`). This is why §2.6 requires `CAFDaiTracker` to
-   implement its own `onBitrateChanged(ev)` method with the same signature —
-   duck-typing compatibility, zero `tracker.js` changes.
-5. `onError()` (`src/tracker.js:290-302`) checks `ev.detailedErrorCode` against
-   two CAF-native `DetailedErrorCode`s specific to `BreakManager`/`BreakClip`
-   loading (`BREAK_CLIP_LOADING_ERROR`, `BREAK_SEEK_INTERCEPTOR_ERROR`). DAI
-   stream errors never produce these codes — they arrive instead via the DAI
-   `StreamManager`'s own `ERROR` `StreamEvent`, handled entirely inside
-   `CAFDaiTracker.onStreamError()` (§2.2), independent of `cast.framework.events`.
-   No change needed here either.
+The original argument was sound as far as it went: every ad guard in
+`tracker.js` read `this.adsTracker.state.isAdBreak`; `isAdBreak` is a generic
+`VideoTrackerState` field moved only by the inherited
+`sendAdBreakStart()`/`sendAdBreakEnd()`; and `CAFDaiTracker` calls exactly
+those. All of that is still true. What it missed is that **the flag is not the
+same thing as "an ad is on screen" under SSAI**, and that the stitched clock is
+not content time.
 
-**Verification task for the builder:** write an explicit test (LLD §5, Test
-Group 4) asserting that attaching a `CAFDaiTracker` via `setAdsTracker()` and
-driving it through an ad break causes `tracker.js`'s `onPause`/`onBuffering`
-guards to route to the DAI tracker correctly, with zero modifications to
-`tracker.js`. If this test fails, that is a signal the reasoning above has a
-gap — stop and re-examine before changing `tracker.js`, rather than patching
-around it.
+### 3.1 The content guard — `isAdsTrackerActive()` / `canCloseContentTransition()`
+
+`AD_BREAK_STARTED` is emitted by the IMA SDK only *after* playback has entered
+the ad — expected SSAI behaviour, since on live the SDK cannot know about a
+break before its metadata arrives. So CAF's `PLAYING` fires while `isAdBreak`
+is still false, `sendStart()` runs, and because `goStart()` is once-per-view the
+session's content startup time is permanently measured to the pre-roll. Ad
+buffering in the same window bills to content rebuffering.
+
+`isAdsTrackerActive()` replaces the flag at every guard site. Its arms are
+ordered by how much the attached ads tracker knows:
+
+1. `adsTracker.isAdPlaying()` — `CAFDaiTracker`'s own answer (§2.5.2), which
+   covers the unannounced pre-roll window via the cue points.
+2. `adsTracker.getCurrentAdBreak() != null` — an ads tracker that tracks a
+   break but cannot see ahead of it.
+3. `adsTracker.state?.isAdBreak` — all the auto-created CSAI `CAFAdsTracker`
+   ever moves; it has neither accessor above, so **this arm is the entire CSAI
+   path** and must not be removed.
+
+`canCloseContentTransition(flag)` is the other half, and the asymmetry is
+deliberate: *opening* a content transition during a break is suppressed (or
+routed to the ads tracker, as CAF already did), but *closing* one that is
+already open is not. video-core bills `(stopTime - startTime)` to
+`totalRebufferingTime` and pairs `goSeekEnd` with `isSeeking`, so holding a
+content transition open across a break charges the whole pod to content — and a
+stall that begins just before an ad boundary is a common SSAI case. So
+`onBuffering`'s end branch, `onPlay` and `onSeekEnd` ask
+`canCloseContentTransition('isBuffering' | 'isPaused' | 'isSeeking')`, while
+`onLoadedMetadata`, `onPlaying`, `onPause`, `onSeekStart` and `onBitrateChanged`
+ask `isAdsTrackerActive()`.
+
+CAF's existing routing of buffer/pause/resume/seek/bitrate **to** the ads
+tracker during a break is unchanged.
+
+### 3.2 Content time — `toContentTime()`
+
+The stitched stream's clock includes every ad played so far, so
+`getCurrentTimeSec()`/`getDurationSec()` are stream time, not content time: a
+10-minute VOD with 4 minutes of ads reported a 14-minute `contentDuration` and
+a playhead up to 4 minutes ahead of the content, making percent-viewed and
+completion wrong on every session.
+
+`toContentTime(streamTime)` asks `adsTracker?.contentTimeForStreamTime?.()`
+(§2.5.3) and accepts only a finite number, so a session with no ads, or with the
+CSAI `CAFAdsTracker` (whose break stream is separate, leaving CAF's clock
+already content time), reports the clock unchanged. `getPlayhead()` and
+`getDuration()` both route through it, each keeping its existing unit — seconds
+in from the receiver, milliseconds out to the data model. There is deliberately
+no `isLive()` skip: the SDK's conversion is an identity on live, which is
+indistinguishable from not converting.
+
+### 3.3 Liveness — `isLive()`
+
+`contentIsLive` comes from the **content** tracker's `isLive()` (video-core
+5.1.1: `e.contentIsLive = this.isLive()`), the base class answers `null`, and
+`CAFTracker` had no override — so `contentIsLive` was null on every CAF event.
+video-core reads neither `getStreamType()` nor `isLiveStream()` anywhere (zero
+occurrences), so this getter is the only live signal that reaches NRDB.
+
+The signal is `PlayerManager.getLiveSeekableRange()`, verified against the v3
+receiver bundle: it delegates to the active media player, which returns null
+unless the *manifest* says the stream is live. `getPlayerState()` answers the
+literal `'IDLE'` exactly when the PlayerManager has no player, and the range is
+null for live and VOD alike until something is loaded, so that is the
+`null`/"cannot say yet" case rather than a guessed `false`.
+
+### 3.4 Tolerating a receiver with nothing loaded — `readFromPlayer()`
+
+`CAFDaiTracker`'s handlers run inside the IMA DAI SDK's own event dispatch, so
+an exception escaping attribute collection reaches the SDK, which aborts the
+stream request — observed on the sibling DASH integration, where nothing played
+at all. The reachable chain here is `onStreamError` →
+`contentTracker.sendError()` → `CAFTracker.getAttributes()`, invoked exactly
+when a failed stream request has left the receiver IDLE.
+
+`readFromPlayer(read, fallback)` wraps the third-party reads that had no
+try/catch: `getSenders()[0].userAgent` in `getAttributes()` (the real
+`getSenders()` maps sender ids through an accessor that answers null for one it
+cannot resolve), plus `getPlayhead()`, `getDuration()`, `getPlayrate()` and
+`getLanguage()`. §2.2's `guard()` wrapper is the second, load-bearing layer.
+
+### 3.5 Still unchanged
+
+- `this.adsTracker.onBitrateChanged(ev)` (the one genuinely
+  `CAFAdsTracker`-specific call) — §2.6 still requires `CAFDaiTracker` to
+  implement the same method, duck-typed.
+- `onError()`'s `ev.detailedErrorCode` checks against the CAF-native
+  `BREAK_CLIP_LOADING_ERROR`/`BREAK_SEEK_INTERCEPTOR_ERROR`. DAI stream errors
+  never produce these; they arrive via the `StreamManager`'s own `ERROR`
+  `StreamEvent`, handled entirely in `CAFDaiTracker.onStreamError()`.
+- `CAFAdsTracker` (`src/ads.js`) itself.
 
 ## 4. Public exports
 
@@ -591,13 +718,17 @@ Test groups (one `it` per §2.2 table row, minimum):
    known list when a later event carries none, and survives a throwing
    accessor; `getPlayhead()` reads CAF's player, never the `StreamManager`, and
    reports 0 rather than throwing without a `playerManager`; `getStreamType()`
-   live/vod inference; `isMuted()` delegates to `options.contentTracker` and
+   derived from the content tracker and ignoring the sender-declared receiver
+   stream type; `isAdPlaying()` against cue points, played windows, the break
+   object alone and a disposed tracker; `contentTimeForStreamTime()` delegation
+   and its `undefined` cases; `isMuted()` delegates to `options.contentTracker` and
    returns `null` without one; `getBitrate()`/`getRenditionWidth()`/
    `getRenditionHeight()` read `playerManager.getStats()`, `null` without it;
    `getRenditionBitrate()`/`onBitrateChanged()`; no `isUsing()` detector
    exists.
 5. **Interface `CAFTracker` depends on** — a real `CAFDaiTracker` instance (not
-   a stand-in) exposes a `state` object carrying `isAdBreak`, and
+   a stand-in) exposes a `state` object carrying `isAdBreak`,
+   `isAdPlaying()`/`contentTimeForStreamTime()`, and
    `sendPause`/`sendResume`/`sendBufferStart`/`sendBufferEnd`/`sendSeekStart`/
    `sendSeekEnd`/`sendError`/`onBitrateChanged` as functions; and it does not
    override the inherited `sendAdBreakStart`/`sendAdBreakEnd` that drive the
@@ -608,13 +739,24 @@ Test groups (one `it` per §2.2 table row, minimum):
    the real tracker and assert the reported event sequence for a multi-ad pod,
    two sequential breaks, and a break that ends mid-ad. These are the tests that
    catch the `isRequested` class of bug described in §2.2.
-7. **`CAFTracker` + `CAFDaiTracker` integration (no `tracker.js` changes
-   required)**, in `src/__test__/tracker-dai-integration.test.js` — construct a
-   real `CAFTracker` with a mocked `receiverContext`/`PlayerManager`, give it an
-   ads tracker with the DAI tracker's shape, and assert `onPause()`/
-   `onBuffering()`/`onBitrateChanged()` route to it — proving §3's reasoning
-   holds in practice, not just on paper. The surface that stand-in has to match
-   is pinned against the real class by group 5 above.
+7. **`CAFTracker` + `CAFDaiTracker` integration**, in
+   `src/__test__/tracker-dai-integration.test.js` — construct a real
+   `CAFTracker` with a mocked `receiverContext`/`PlayerManager` and drive a real
+   `CAFDaiTracker` off real `StreamEvent`s through it. Covers §3 end to end:
+   each `isAdsTrackerActive()` arm including the CSAI fallback; no
+   `CONTENT_START`, download or content buffer inside a pre-roll the SDK has not
+   announced yet; a content buffer/seek/pause already open still closing
+   mid-break; content playhead and duration with the stitched ad time removed,
+   and unchanged when the SDK cannot convert; `isLive()` across live, VOD, idle
+   and unavailable getters; and a DAI stream error raised while the receiver is
+   idle not escaping into the SDK dispatch.
+
+   The mocks must be faithful where it matters: `removeEventListener` matches on
+   the **handler reference** (as the real StreamManager does), the base-class
+   mock moves `isBuffering`/`isPaused`/`isSeeking` as video-core's `go*`
+   transitions do, and a throwing-receiver fixture exists alongside the
+   never-throwing one. Fixtures that were lax in all three ways are what hid the
+   findings in §3.
 
 ## 6. Sample page — `samples/dai/index.html`
 
