@@ -889,16 +889,24 @@ describe('CAFDaiTracker — cue points, getters, bitrate', () => {
     expect(tracker.getPlayhead()).toBe(0);
   });
 
-  // A duration test CANNOT identify a DAI live stream. The stitched live
-  // manifest reports a finite, growing DVR window rather than Infinity —
-  // measured at 60s on the sibling DASH implementation — so
-  // `getDurationSec() === Infinity` reported EVERY live stream as 'vod'. Both
-  // video-hls-js and video-dash-js removed that test for this reason; this
-  // reads the Cast receiver's own stream type instead.
-  it('getStreamType() reads the Cast receiver stream type, not the duration', () => {
-    const livePm = createMockPlayerManager(3, 'LIVE');
-    const live = new CAFDaiTracker(createMockStreamManager(), { playerManager: livePm });
-    const vod = newTracker();
+  // Derived from the content tracker's isLive(), as the hls.js and dash.js DAI
+  // trackers do.
+  //
+  // NOT from MediaInformation.streamType: that is what the SENDER declared in
+  // the LOAD request, and when the sender omits it the receiver fills it in
+  // from a duration test (verified in the v3 bundle:
+  // `duration === -1 || duration === Infinity ? 'LIVE' : 'BUFFERED'`). A DAI
+  // live stream is stitched into a finite, growing DVR window — measured at 60s
+  // on the sibling DASH integration — so that test reports every live DAI
+  // stream as BUFFERED. CAFTracker.isLive() reads the receiver's live seekable
+  // range instead, which the media player derives from the manifest.
+  it('getStreamType() derives from the content tracker', () => {
+    const live = newTracker(createMockStreamManager(), {
+      contentTracker: { isLive: () => true },
+    });
+    const vod = newTracker(createMockStreamManager(), {
+      contentTracker: { isLive: () => false },
+    });
 
     expect(live.getStreamType()).toBe('live');
     expect(live.isLiveStream()).toBe(true);
@@ -906,34 +914,37 @@ describe('CAFDaiTracker — cue points, getters, bitrate', () => {
     expect(vod.isLiveStream()).toBe(false);
   });
 
-  it('getStreamType() reports live even though the DVR duration is finite', () => {
-    // The exact shape that defeated the old test: a live stream whose duration
-    // is a finite DVR window.
-    const pm = createMockPlayerManager(3, 'LIVE');
-    pm.getDurationSec = jest.fn(() => 60);
-    const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
+  it('getStreamType() ignores the sender-declared receiver stream type', () => {
+    const pm = createMockPlayerManager(3, 'BUFFERED');
+    const tracker = new CAFDaiTracker(createMockStreamManager(), {
+      playerManager: pm,
+      contentTracker: { isLive: () => true },
+    });
 
     expect(tracker.getStreamType()).toBe('live');
+    expect(pm.getMediaInformation).not.toHaveBeenCalled();
   });
 
-  it('getStreamType() reports unknown rather than guessing vod', () => {
-    const pm = createMockPlayerManager(3, 'OTHER');
-    const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
+  // Unknown reports null rather than guessing 'vod' — a wrong value is worse
+  // than an absent one — and only a boolean counts as an answer.
+  it('getStreamType() reports unknown when liveness is not established', () => {
+    expect(newTracker().getStreamType()).toBeNull();
 
-    expect(tracker.getStreamType()).toBeNull();
-    expect(tracker.isLiveStream()).toBe(false);
+    const unknown = newTracker(createMockStreamManager(), {
+      contentTracker: { isLive: () => null },
+    });
+    expect(unknown.getStreamType()).toBeNull();
+    expect(unknown.isLiveStream()).toBe(false);
   });
 
-  // CAF's getDurationSec() throws before media is loaded, and getStreamType()
-  // runs for every ad event.
-  it('getStreamType() does not throw before media is loaded', () => {
-    const pm = createMockPlayerManager();
-    pm.getMediaInformation = jest.fn(() => { throw new Error('not loaded'); });
-    const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
-    // null, not a guessed 'vod' — matching the siblings, where 'unknown' is an
-    // allowed value for streamType.
+  // getStreamType() runs for every ad event, including before media is loaded.
+  it('getStreamType() does not throw when the content tracker cannot answer', () => {
+    const tracker = newTracker(createMockStreamManager(), {
+      contentTracker: { isLive: () => { throw new Error('not loaded') } },
+    });
+
+    expect(() => tracker.getStreamType()).not.toThrow();
     expect(tracker.getStreamType()).toBeNull();
-    expect(tracker.isLiveStream()).toBe(false);
   });
 
   it('isMuted() delegates to options.contentTracker, null without one', () => {

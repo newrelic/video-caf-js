@@ -346,8 +346,9 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   extractStreamData(event) {
     try {
       const streamData = event.getStreamData();
-      // No streamType snapshot here: getStreamType() derives it from the
-      // player's duration, which is not known this early in the stream.
+      // No streamType snapshot here: it is derived from the content tracker's
+      // live flag, which the receiver cannot answer this early, and
+      // getStreamType() reads it fresh anyway.
       return {
         streamId: streamData?.streamId,
         url: streamData?.url,
@@ -503,25 +504,27 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    * 'live', 'vod', or null when unknown — the same three values the hls.js and
    * dash.js DAI trackers report.
    *
-   * Read from the Cast receiver's own `MediaInformation.streamType`
-   * ('LIVE' / 'BUFFERED' / 'OTHER'), which is the authoritative signal here and
-   * is already how this repo reads media metadata elsewhere.
+   * Comes from the content tracker, as it does on both siblings. CAFTracker's
+   * isLive() reads the receiver's live seekable range, which the media player
+   * derives from the manifest.
    *
-   * It is NOT inferred from the duration any more. A DAI live stream is
-   * stitched into a finite, growing DVR window rather than reporting Infinity —
-   * measured at 60s on the sibling DASH implementation — so
-   * `getDurationSec() === Infinity` reported **every live stream as 'vod'**.
-   * video-hls-js and video-dash-js both removed that test for this reason.
+   * It is NOT `MediaInformation.streamType`. That is what the SENDER declared
+   * in the LOAD request, not a property of the stitched stream, and when the
+   * sender omits it the receiver fills it in from a duration test (verified in
+   * the v3 bundle: `duration === -1 || duration === Infinity ? 'LIVE' :
+   * 'BUFFERED'`) — which calls every live DAI stream BUFFERED, because a DAI
+   * live stream is stitched into a finite, growing DVR window rather than
+   * reporting Infinity.
    *
-   * getMediaInformation() can throw before media is loaded, and this getter
-   * runs for every ad event, so it must not propagate. Unknown reports null
-   * rather than guessing 'vod' — a wrong value is worse than an absent one.
+   * This getter runs for every ad event and the content tracker reads the
+   * receiver, so it must not propagate. Unknown reports null rather than
+   * guessing 'vod' — a wrong value is worse than an absent one — and only a
+   * boolean counts as an answer.
    */
   getStreamType() {
     try {
-      const streamType = this.playerManager?.getMediaInformation?.()?.streamType;
-      if (streamType === 'LIVE') return 'live';
-      if (streamType === 'BUFFERED') return 'vod';
+      const live = this.contentTracker?.isLive?.();
+      if (typeof live === 'boolean') return live ? 'live' : 'vod';
     } catch (error) {
       nrvideo.Log.warn('CAFDaiTracker: Failed to read stream type', error);
     }

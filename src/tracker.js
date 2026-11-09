@@ -279,6 +279,42 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     return 'caf'
   }
 
+  /**
+   * true, false, or null when the receiver cannot say yet — published as
+   * contentIsLive.
+   *
+   * This override is the ONLY live signal that reaches NRDB: video-core takes
+   * contentIsLive from the content tracker's isLive() (verified in 5.1.1,
+   * `e.contentIsLive = this.isLive()`) and reads neither getStreamType() nor
+   * isLiveStream() anywhere. Without it the base class answered null on every
+   * event.
+   *
+   * The signal is PlayerManager.getLiveSeekableRange(), NOT the
+   * MediaInformation.streamType the DAI ads tracker used to read. Verified
+   * against the v3 receiver bundle: the range delegates to the active media
+   * player, which returns null unless the MANIFEST says the stream is live,
+   * whereas streamType is whatever the sender put in the LOAD request — and
+   * when the sender omits it the receiver fills it in from a duration test
+   * (`duration === -1 || duration === Infinity ? 'LIVE' : 'BUFFERED'`, logged
+   * as "Media streamType is initially set wrong"). A DAI live stream is
+   * stitched into a finite, growing DVR window, so that test calls every live
+   * DAI stream BUFFERED.
+   */
+  isLive () {
+    // The range is null for live and VOD alike until something is loaded, so
+    // 'not live' there would be a guess. getPlayerState() answers the literal
+    // 'IDLE' exactly when the PlayerManager has no player.
+    const state = this.readFromPlayer(() => this.player.getPlayerState())
+    if (state == null || state === 'IDLE') return null
+
+    // undefined is the "could not read" fallback here, distinct from the null
+    // the receiver itself reports for a non-live stream.
+    const range = this.readFromPlayer(
+      () => this.player.getLiveSeekableRange(), undefined
+    )
+    return range === undefined ? null : range !== null
+  }
+
   getPlayerVersion () {
     try {
       return cast.player.api.VERSION

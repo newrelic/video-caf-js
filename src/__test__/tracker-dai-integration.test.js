@@ -105,6 +105,12 @@ function createMockPlayerManager(currentTime = 42) {
     getCurrentTimeSec: jest.fn(() => time),
     getDurationSec: jest.fn(() => 600),
     getStats: jest.fn(() => ({ streamBandwidth: 512000, width: 1280, height: 720 })),
+    // cast.framework.PlayerManager.getPlayerState() answers the literal 'IDLE'
+    // whenever it has no player, and getLiveSeekableRange() is non-null only
+    // for a stream the active media player determined is live from the
+    // manifest. Both verified against the v3 receiver bundle.
+    getPlayerState: jest.fn(() => 'PLAYING'),
+    getLiveSeekableRange: jest.fn(() => null),
     _setTime(t) { time = t; },
   };
 }
@@ -232,6 +238,61 @@ describe('CAFTracker ad-break guards work unmodified for a CAFDaiTracker-shaped 
 
     expect(() => tracker.onBitrateChanged({ totalBitrate: 999 })).not.toThrow();
     expect(fakeDai.onBitrateChanged).toHaveBeenCalledWith({ totalBitrate: 999 });
+  });
+});
+
+/**
+ * contentIsLive comes from the CONTENT tracker's isLive() — verified in
+ * video-core 5.1.1, `e.contentIsLive = this.isLive()` — and the base class
+ * answers null, so CAFTracker published null on every event. video-core reads
+ * neither getStreamType() nor isLiveStream() anywhere (zero occurrences), so
+ * this getter is the only live signal that reaches NRDB.
+ *
+ * The signal is PlayerManager.getLiveSeekableRange(), not the sender-declared
+ * MediaInformation.streamType. Verified against the v3 receiver bundle:
+ * getLiveSeekableRange() delegates to the active media player, which returns
+ * null unless the manifest says the stream is live, while streamType is
+ * whatever the sender put in the LOAD request — and when the sender omits it
+ * the receiver fills it in from a DURATION test
+ * (`duration === -1 || duration === Infinity ? 'LIVE' : 'BUFFERED'`, logged as
+ * "Media streamType is initially set wrong"). A DAI live stream is stitched
+ * into a finite DVR window, so that test reports it BUFFERED.
+ */
+describe('CAFTracker — liveness', () => {
+  function withPlayer(overrides) {
+    const pm = { ...createMockPlayerManager(), ...overrides };
+    return new CAFTracker(createMockReceiverContext(pm), { info: {} });
+  }
+
+  it('reports live from a non-null live seekable range', () => {
+    const tracker = withPlayer({ getLiveSeekableRange: () => ({ start: 0, end: 60 }) });
+    expect(tracker.isLive()).toBe(true);
+  });
+
+  it('reports not live when the receiver has no live seekable range', () => {
+    expect(withPlayer({ getLiveSeekableRange: () => null }).isLive()).toBe(false);
+  });
+
+  // The range is null for live and VOD alike until something is loaded, so
+  // false would be a guess. 'IDLE' is exactly the no-player state.
+  it('reports unknown while the receiver is idle', () => {
+    expect(withPlayer({ getPlayerState: () => 'IDLE' }).isLive()).toBeNull();
+  });
+
+  it('reports unknown rather than throwing when the getters are unavailable', () => {
+    const tracker = withPlayer({
+      getPlayerState: undefined,
+      getLiveSeekableRange: undefined,
+    });
+    expect(tracker.isLive()).toBeNull();
+  });
+
+  it('ignores the sender-declared stream type', () => {
+    const tracker = withPlayer({
+      getLiveSeekableRange: () => ({ start: 0, end: 60 }),
+      getMediaInformation: () => ({ streamType: 'BUFFERED' }),
+    });
+    expect(tracker.isLive()).toBe(true);
   });
 });
 
