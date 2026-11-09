@@ -103,12 +103,16 @@ function createMockStreamManager() {
   };
 }
 
-function createMockPlayerManager(currentTime = 3) {
+function createMockPlayerManager(currentTime = 3, streamType = 'BUFFERED') {
   let time = currentTime;
   return {
     getCurrentTimeSec: jest.fn(() => time),
     getDurationSec: jest.fn(() => 120),
     getStats: jest.fn(() => ({ streamBandwidth: 512000, width: 1280, height: 720 })),
+    // cast.framework.messages.MediaInformation.streamType — 'BUFFERED',
+    // 'LIVE' or 'OTHER'. Already the repo's established way of reading media
+    // metadata (tracker.js uses getMediaInformation four times).
+    getMediaInformation: jest.fn(() => ({ streamType })),
     _setTime(t) { time = t; },
   };
 }
@@ -764,29 +768,66 @@ describe('CAFDaiTracker — cue points, getters, bitrate', () => {
     expect(sm.getStreamTime).not.toHaveBeenCalled();
   });
 
+  // Cross-player parity: a dashboard filtering trackerName = 'dai-ads' must
+  // not silently exclude Chromecast. video-hls-js and video-dash-js both report
+  // 'dai-ads'; the platform is already carried by playerName.
+  it('reports the same trackerName as the hls and dash DAI trackers', () => {
+    const tracker = newTracker();
+    expect(tracker.getTrackerName()).toBe('dai-ads');
+    expect(tracker.getPlayerName()).toBe('caf-dai');
+    expect(tracker.getAdPartner()).toBe('google-dai');
+  });
+
   it('getPlayhead() reports 0 rather than throwing without a playerManager', () => {
     const sm = createMockStreamManager();
     const tracker = new CAFDaiTracker(sm, {});
     expect(tracker.getPlayhead()).toBe(0);
   });
 
-  it('getStreamType() infers "live" from Infinity duration, "vod" otherwise', () => {
-    const livePm = createMockPlayerManager();
-    livePm.getDurationSec = jest.fn(() => Infinity);
+  // A duration test CANNOT identify a DAI live stream. The stitched live
+  // manifest reports a finite, growing DVR window rather than Infinity —
+  // measured at 60s on the sibling DASH implementation — so
+  // `getDurationSec() === Infinity` reported EVERY live stream as 'vod'. Both
+  // video-hls-js and video-dash-js removed that test for this reason; this
+  // reads the Cast receiver's own stream type instead.
+  it('getStreamType() reads the Cast receiver stream type, not the duration', () => {
+    const livePm = createMockPlayerManager(3, 'LIVE');
     const live = new CAFDaiTracker(createMockStreamManager(), { playerManager: livePm });
     const vod = newTracker();
+
     expect(live.getStreamType()).toBe('live');
-    expect(vod.getStreamType()).toBe('vod');
     expect(live.isLiveStream()).toBe(true);
+    expect(vod.getStreamType()).toBe('vod');
+    expect(vod.isLiveStream()).toBe(false);
+  });
+
+  it('getStreamType() reports live even though the DVR duration is finite', () => {
+    // The exact shape that defeated the old test: a live stream whose duration
+    // is a finite DVR window.
+    const pm = createMockPlayerManager(3, 'LIVE');
+    pm.getDurationSec = jest.fn(() => 60);
+    const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
+
+    expect(tracker.getStreamType()).toBe('live');
+  });
+
+  it('getStreamType() reports unknown rather than guessing vod', () => {
+    const pm = createMockPlayerManager(3, 'OTHER');
+    const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
+
+    expect(tracker.getStreamType()).toBeNull();
+    expect(tracker.isLiveStream()).toBe(false);
   });
 
   // CAF's getDurationSec() throws before media is loaded, and getStreamType()
   // runs for every ad event.
   it('getStreamType() does not throw before media is loaded', () => {
     const pm = createMockPlayerManager();
-    pm.getDurationSec = jest.fn(() => { throw new Error('not loaded'); });
+    pm.getMediaInformation = jest.fn(() => { throw new Error('not loaded'); });
     const tracker = new CAFDaiTracker(createMockStreamManager(), { playerManager: pm });
-    expect(tracker.getStreamType()).toBe('vod');
+    // null, not a guessed 'vod' — matching the siblings, where 'unknown' is an
+    // allowed value for streamType.
+    expect(tracker.getStreamType()).toBeNull();
     expect(tracker.isLiveStream()).toBe(false);
   });
 

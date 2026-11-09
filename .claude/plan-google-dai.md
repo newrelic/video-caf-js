@@ -47,7 +47,7 @@ event→method mapping table, getter table, and the line-by-line proof that
   modified by this plan, with one exception noted per-task below (none — see
   LLD §3; `CAFDaiTracker` conforms to `tracker.js`'s existing expectations
   instead of the reverse).
-- Fixed string values: `getTrackerName()` → `'caf-dai'`, `getPlayerName()` →
+- Fixed string values: `getTrackerName()` → `'dai-ads'` (corrected from `'caf-dai'` for cross-player parity with video-hls-js and video-dash-js), `getPlayerName()` →
   `'caf-dai'`, `getAdPartner()` → `'google-dai'` (LLD §2.5) — the last one must
   match `video-videojs-js`/`video-hls-js` exactly for cross-player dashboard
   consistency.

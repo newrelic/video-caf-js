@@ -275,7 +275,7 @@ no `getAdBreak()`, no `getCuepoints()`, no `getError()`, no `getType()`/
 Each helper wraps its reads in try/catch and logs a warning on failure:
 
 - `extractStreamData(event)` → `{ streamId, url }` from `event.getStreamData()`.
-  No `streamType` snapshot: `getStreamType()` derives it from the player's
+  No `streamType` snapshot: `getStreamType()` derives it from the receiver's
   duration, which is not known this early in the stream, so a snapshot taken
   here would pin every stream to `'vod'` for its whole life.
 - `extractAdBreakData()` → `{ adCount: undefined, position: null }`. Nothing
@@ -344,7 +344,7 @@ getAdPosition() {
 
 | Method                  | Implementation                                                             |
 |--------------------------|-----------------------------------------------------------------------------|
-| `getTrackerName()`       | `'caf-dai'`                                                                |
+| `getTrackerName()`       | `'dai-ads'` — matches video-hls-js and video-dash-js (cross-player parity) |
 | `getTrackerVersion()`    | `version` from `package.json` (same import as `CAFTracker`/`CAFAdsTracker`) |
 | `getPlayerName()`        | `'caf-dai'`                                                                |
 | `getPlayerVersion()`     | `'unknown'` — same reasoning as hls.js LLD §2.5: no reliable DAI-SDK version string exists; don't invent one, verify at implementation time against `google.ima.dai.api` for any exported version constant first |
@@ -358,7 +358,7 @@ getAdPosition() {
 | `getStreamTimeMs()`      | `(this.playerManager?.getCurrentTimeSec?.() ?? 0) * 1000`                 |
 | `getAdPartner()`         | `'google-dai'` (must match the hls.js/videojs value exactly — cross-player dashboard queries depend on this being identical) |
 | `getClickThroughUrl()`   | `this.currentAdData?.clickThroughUrl ?? null`                             |
-| `getStreamType()`        | `this.playerManager?.getDurationSec?.() === Infinity ? 'live' : 'vod'`. Derived fresh on every call — never snapshotted into `streamData` (§2.3) |
+| `getStreamType()`        | `'live'` / `'vod'` / `null`, from the Cast receiver's `getMediaInformation().streamType` (`LIVE` / `BUFFERED` / `OTHER`). Derived fresh on every call — never snapshotted into `streamData` (§2.3). **Not** duration-based: a DAI live stream reports a finite DVR window, not `Infinity`, so the old test reported every live stream as `vod` |
 | `isMuted()`              | `this.contentTracker?.isMuted?.() ?? null` (CAF has no synchronous mute getter independent of `CAFTracker`'s cached `MEDIA_STATUS` payload — see HLD §9) |
 | `getRenditionHeight()` / `getRenditionWidth()` | `this.playerManager.getStats().height` / `.width` in try/catch, exactly as `CAFTracker` reads them (`src/tracker.js:137-153`). The stitched stream is decoded by CAF's own player during ads, so these are available — unlike hls.js, which has to delegate to a content tracker |
 

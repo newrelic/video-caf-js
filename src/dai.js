@@ -450,22 +450,43 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   /**
-   * 'live' or 'vod', inferred from CAF's own duration. StreamData carries no
-   * stream type of its own to consult, and PlayerManager exposes no live flag.
+   * 'live', 'vod', or null when unknown — the same three values the hls.js and
+   * dash.js DAI trackers report.
    *
-   * getDurationSec() throws before media is loaded — CAFTracker.getDuration()
-   * guards it for the same reason — and this getter runs for every ad event.
+   * Read from the Cast receiver's own `MediaInformation.streamType`
+   * ('LIVE' / 'BUFFERED' / 'OTHER'), which is the authoritative signal here and
+   * is already how this repo reads media metadata elsewhere.
+   *
+   * It is NOT inferred from the duration any more. A DAI live stream is
+   * stitched into a finite, growing DVR window rather than reporting Infinity —
+   * measured at 60s on the sibling DASH implementation — so
+   * `getDurationSec() === Infinity` reported **every live stream as 'vod'**.
+   * video-hls-js and video-dash-js both removed that test for this reason.
+   *
+   * getMediaInformation() can throw before media is loaded, and this getter
+   * runs for every ad event, so it must not propagate. Unknown reports null
+   * rather than guessing 'vod' — a wrong value is worse than an absent one.
    */
   getStreamType() {
     try {
-      return this.playerManager.getDurationSec() === Infinity ? 'live' : 'vod';
+      const streamType = this.playerManager?.getMediaInformation?.()?.streamType;
+      if (streamType === 'LIVE') return 'live';
+      if (streamType === 'BUFFERED') return 'vod';
     } catch (error) {
-      return 'vod';
+      nrvideo.Log.warn('CAFDaiTracker: Failed to read stream type', error);
     }
+    return null;
   }
 
+  /**
+   * 'dai-ads', matching video-hls-js and video-dash-js.
+   *
+   * Cross-player parity: a dashboard filtering trackerName = 'dai-ads' would
+   * otherwise silently exclude every Chromecast ad event. The platform is
+   * already carried by getPlayerName(), which stays 'caf-dai'.
+   */
   getTrackerName() {
-    return 'caf-dai';
+    return 'dai-ads';
   }
 
   getTrackerVersion() {
