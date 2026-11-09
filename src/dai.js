@@ -532,11 +532,23 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   /**
-   * 'dai-ads', matching video-hls-js and video-dash-js.
+   * 'dai-ads', matching video-hls-js and video-dash-js. Source-level
+   * consistency only — this value does NOT reach New Relic.
    *
-   * Cross-player parity: a dashboard filtering trackerName = 'dai-ads' would
-   * otherwise silently exclude every Chromecast ad event. The platform is
-   * already carried by getPlayerName(), which stays 'caf-dai'.
+   * ⚠️ Corrects the claim in the commit that introduced this rename. That
+   * commit said a dashboard filtering trackerName = 'dai-ads' would silently
+   * exclude Chromecast. It would not. Verified against stored events: ad
+   * telemetry is funnelled through `parentTracker.sendVideoAdAction`, so the
+   * CONTENT tracker fills trackerName, playerName and playerVersion with its
+   * own values. An hls DAI ad event stores trackerName 'hls' and playerName
+   * 'HLS-JS' despite its ad tracker returning 'dai-ads' and 'hls-dai'.
+   *
+   * `adPartner` ('google-dai') is the only attribute that identifies an event
+   * as DAI, and is therefore the only safe filter for a cross-player DAI query.
+   *
+   * The rename still stands — three sibling implementations answering the same
+   * question differently is worth avoiding — but it is cosmetic, not a data
+   * fix, and should not be cited as one.
    */
   getTrackerName() {
     return 'dai-ads';
