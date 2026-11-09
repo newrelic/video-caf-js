@@ -370,6 +370,46 @@ describe('CAFDaiTracker — stream errors', () => {
     expect(contentTracker.sendError).toHaveBeenCalledTimes(1);
   });
 
+  // video-core's getAttributes() FILLS AND RETURNS the object it is handed, so
+  // handing ONE payload to the ad tracker and then the content tracker
+  // publishes a CONTENT_ERROR carrying adId, adPartner, adPosition and
+  // adPlayhead. Already fixed in video-hls-js and video-dash-js.
+  //
+  // The test above cannot catch it: its mocks are plain jest.fn()s that do not
+  // mutate, and Jest records arguments BY REFERENCE. This one replays the
+  // mutation and snapshots what each tracker actually received.
+  it('does not leak ad attributes into the content error event', () => {
+    const sm = createMockStreamManager();
+    let contentReceived = null;
+    const contentTracker = {
+      sendError: jest.fn((att) => {
+        contentReceived = { ...att };
+        att.isAd = false;
+        att.contentId = 'content-1';
+        return att;
+      }),
+    };
+    const tracker = newTracker(sm, { contentTracker });
+    tracker.sendError = jest.fn((att) => {
+      att.isAd = true;
+      att.adId = 'ad-1';
+      att.adPartner = 'google-dai';
+      att.adPosition = 'pre';
+      att.adPlayhead = 3200;
+      return att;
+    });
+
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    sm._emit(StreamEventType.ERROR, {
+      getStreamData: () => ({ errorMessage: 'Ad fetch failed.' }),
+    });
+
+    expect(contentReceived).toEqual({ errorMessage: 'Ad fetch failed.' });
+    ['adId', 'adPartner', 'adPosition', 'adPlayhead'].forEach((key) => {
+      expect(contentReceived).not.toHaveProperty(key);
+    });
+  });
+
   // setAdsTracker() sets parentTracker, so the usual integration needs no
   // explicit contentTracker option for errors to reach the content session.
   it('ERROR prefers the parentTracker set by setAdsTracker()', () => {

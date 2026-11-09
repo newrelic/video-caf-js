@@ -134,13 +134,19 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     nrvideo.Log.error('CAFDaiTracker: Stream error', errorData);
     const contentTracker = this.parentTracker ?? this.contentTracker;
 
-    if (this.adBreakData) this.sendError(errorData);
+    // Each send gets its OWN copy. video-core's getAttributes() fills and
+    // returns the object it is handed, so passing one payload to both trackers
+    // would publish a CONTENT_ERROR carrying this tracker's adId, adPartner,
+    // adPosition and adPlayhead — the same rule that keeps adBreakData out of
+    // adBreakAttributes(), applied to a payload shared across two trackers
+    // rather than to internal state.
+    if (this.adBreakData) this.sendError({ ...errorData });
 
     if (contentTracker?.sendError) {
-      contentTracker.sendError(errorData);
+      contentTracker.sendError({ ...errorData });
     } else if (!this.adBreakData) {
       // Nothing else to report on — better an ad error than a lost error.
-      this.sendError(errorData);
+      this.sendError({ ...errorData });
     }
   }
 
