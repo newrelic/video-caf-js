@@ -181,6 +181,21 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
 
   // Ad Break Event Handlers
   onAdBreakStarted(event) {
+    // A real AD_BREAK_STARTED owns the break from here on, including one that
+    // onAdPeriodStarted opened. Without this the period end stays a closing
+    // path for an SDK-announced break, and on the ordering
+    // period-start -> break-start -> period-end -> break-end it ends the
+    // in-flight ad, sends AD_BREAK_END and drops the content guard while the
+    // pod's remaining ads are still playing — then swallows the genuine
+    // AD_BREAK_ENDED.
+    this.adBreakFromPeriod = false;
+
+    // Already open from a period event: adopt it rather than re-announce it.
+    // video-core's goAdBreakStart() no-ops a second call anyway, and
+    // re-extracting would discard the position and adCount that onAdStarted
+    // backfilled from an ad that has already started inside this break.
+    if (this.adBreakData) return;
+
     this.adBreakData = this.extractAdBreakData(event);
     nrvideo.Log.debug('CAFDaiTracker: Ad break started');
     this.sendAdBreakStart(this.adBreakAttributes());
@@ -224,8 +239,10 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // Bumpers and some live breaks fire only a period start, with no
     // AD_BREAK_STARTED to open the break.
     if (!this.adBreakData) {
-      this.adBreakFromPeriod = true;
       this.onAdBreakStarted(event);
+      // Flagged AFTER the call, not before: onAdBreakStarted clears the flag so
+      // that a real AD_BREAK_STARTED takes ownership of the break.
+      this.adBreakFromPeriod = true;
     }
   }
 

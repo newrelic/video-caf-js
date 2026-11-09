@@ -336,6 +336,59 @@ describe('CAFDaiTracker — construction & lifecycle', () => {
     expect(tracker.sendAdBreakEnd).not.toHaveBeenCalled();
     expect(tracker.getCurrentAdBreak()).not.toBeNull();
   });
+
+  // A real AD_BREAK_STARTED takes ownership of the break a period event opened,
+  // so the period end stops being a closing path for it. The measured ordering
+  // on the sibling DASH integration was break-end-then-period-end, which hides
+  // this; CAF has no cue-point fallback behind the break object on live, so the
+  // other order has to be driven explicitly.
+  it('a real AD_BREAK_STARTED takes over a break opened by a period event', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    sm._emit(StreamEventType.AD_PERIOD_STARTED, {});
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    jest.spyOn(tracker, 'sendAdBreakEnd');
+
+    // The pod may still have ads to play: closing here would end the in-flight
+    // ad, drop the content guard mid-break, and make the genuine
+    // AD_BREAK_ENDED a no-op.
+    sm._emit(StreamEventType.AD_PERIOD_ENDED, {});
+    expect(tracker.sendAdBreakEnd).not.toHaveBeenCalled();
+    expect(tracker.getCurrentAdBreak()).not.toBeNull();
+
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+    expect(tracker.sendAdBreakEnd).toHaveBeenCalledTimes(1);
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+  });
+
+  it('closes the break exactly once when the break end precedes the period end', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    jest.spyOn(tracker, 'sendAdBreakStart');
+    jest.spyOn(tracker, 'sendAdBreakEnd');
+
+    sm._emit(StreamEventType.AD_PERIOD_STARTED, {});
+    sm._emit(StreamEventType.AD_BREAK_STARTED, {});
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+    sm._emit(StreamEventType.AD_PERIOD_ENDED, {});
+
+    expect(tracker.sendAdBreakStart).toHaveBeenCalledTimes(1);
+    expect(tracker.sendAdBreakEnd).toHaveBeenCalledTimes(1);
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+  });
+
+  // The whole point of the period fallback: a bumper fires only period events.
+  it('still closes a bumper break that never got an AD_BREAK_STARTED', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    jest.spyOn(tracker, 'sendAdBreakEnd');
+
+    sm._emit(StreamEventType.AD_PERIOD_STARTED, {});
+    sm._emit(StreamEventType.AD_PERIOD_ENDED, {});
+
+    expect(tracker.sendAdBreakEnd).toHaveBeenCalledTimes(1);
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+  });
 });
 
 describe('CAFDaiTracker — stream errors', () => {
