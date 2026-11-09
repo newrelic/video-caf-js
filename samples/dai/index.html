@@ -31,27 +31,19 @@
 
     const tracker = new CAFTracker(receiverContext, options);
 
-    // UNVERIFIED ASSUMPTION: <cast-media-player> renders a real <video> element
-    // into the DOM internally (per CAF SDK docs), so this is a reasonable way to
-    // obtain the element StreamManager needs — but this has NOT been confirmed
-    // against a real Cast device or the Chromecast Device Emulator. Verify this
-    // selector resolves to the actual playback element before relying on it.
-    const videoElement = document.querySelector('video');
-    const streamManager = new google.ima.dai.api.StreamManager(videoElement);
-
-    // The UMD bundle exposes only CAFTracker as a global; the DAI tracker hangs
-    // off it as a static.
-    const daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
-        playerManager: playerManager,
-        contentTracker: tracker      // lets ad events report mute state
-    });
-
-    // Replaces the auto-created native CAFAdsTracker — DAI and native VMAP/VAST
-    // ad breaks are mutually exclusive per session, so only call this if the
-    // content being loaded actually uses DAI stitching.
-    tracker.setAdsTracker(daiTracker);
-
-    // Google's public DAI test assets (https://developers.google.com/ad-manager/dai/live-stream)
+    // StreamManager/CAFDaiTracker are constructed lazily, on the first LOAD
+    // request, NOT here. CONFIRMED by running this sample against the
+    // Chromecast Device Emulator: document.querySelector('video') returns
+    // null this early — <cast-media-player>'s internal <video> element isn't
+    // in the DOM yet at this point in the receiver's lifecycle — so
+    // `new google.ima.dai.api.StreamManager(null)` throws "Media element must
+    // be provided." By the time a LOAD request arrives (after
+    // receiverContext.start(), see the message interceptor below), the
+    // element exists. One instance is built and reused across every LOAD in
+    // the session (DAI event handling already assumes a long-lived tracker
+    // across stream changes — see src/dai.js's onStreamInitialized).
+    let streamManager;
+    let daiTracker;
     const VOD_CMS_ID = "2548831";
     const VOD_VIDEO_ID = "tears-of-steel";
     const LIVE_ASSET_KEY = "sN_IYUG8STe1ZzhIIE_ksA";
@@ -75,6 +67,23 @@
 
     playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, loadRequestData => {
         console.log("Intercepting LOAD request for DAI stream stitching");
+
+        if (!daiTracker) {
+            const videoElement = document.querySelector('video');
+            streamManager = new google.ima.dai.api.StreamManager(videoElement);
+
+            // The UMD bundle exposes only CAFTracker as a global; the DAI
+            // tracker hangs off it as a static.
+            daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
+                playerManager: playerManager,
+                contentTracker: tracker      // lets ad events report mute state
+            });
+
+            // Replaces the auto-created native CAFAdsTracker — DAI and native
+            // VMAP/VAST ad breaks are mutually exclusive per session, so only
+            // call this if the content being loaded actually uses DAI stitching.
+            tracker.setAdsTracker(daiTracker);
+        }
 
         return streamManager.requestStream(buildStreamRequest(loadRequestData)).then(streamData => {
             loadRequestData.media.contentUrl = streamData.url;

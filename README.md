@@ -174,23 +174,34 @@ import CAFTracker, { CAFDaiTracker } from '@newrelic/video-caf';
 
 const receiverContext = cast.framework.CastReceiverContext.getInstance();
 const tracker = new CAFTracker(receiverContext, options);
+const playerManager = receiverContext.getPlayerManager();
 
-// CAF's <cast-media-player> renders a real <video> element internally;
-// StreamManager needs a reference to it.
-const videoElement = document.querySelector('video');
-const streamManager = new google.ima.dai.api.StreamManager(videoElement);
+// Build the StreamManager/CAFDaiTracker lazily, on the first LOAD request —
+// not here. Verified against the Chromecast Device Emulator:
+// document.querySelector('video') returns null this early, because
+// <cast-media-player>'s internal <video> element isn't in the DOM yet at
+// this point in the receiver's lifecycle, and `new
+// google.ima.dai.api.StreamManager(null)` throws "Media element must be
+// provided." One instance is built and reused across every LOAD in the
+// session — DAI event handling already assumes a long-lived tracker across
+// stream changes (see `onStreamInitialized` in `src/dai.js`).
+let streamManager;
+let daiTracker;
 
-const daiTracker = new CAFDaiTracker(streamManager, {
-  playerManager: receiverContext.getPlayerManager(),
-  contentTracker: tracker,
-});
-
-// Replaces the auto-created native CAFAdsTracker.
-tracker.setAdsTracker(daiTracker);
-
-receiverContext.getPlayerManager().setMessageInterceptor(
+playerManager.setMessageInterceptor(
   cast.framework.messages.MessageType.LOAD,
   (loadRequestData) => {
+    if (!daiTracker) {
+      const videoElement = document.querySelector('video');
+      streamManager = new google.ima.dai.api.StreamManager(videoElement);
+      daiTracker = new CAFDaiTracker(streamManager, {
+        playerManager,
+        contentTracker: tracker,
+      });
+      // Replaces the auto-created native CAFAdsTracker.
+      tracker.setAdsTracker(daiTracker);
+    }
+
     return streamManager.requestStream(buildStreamRequest(loadRequestData)).then((streamData) => {
       loadRequestData.media.contentUrl = streamData.url;
       return loadRequestData;
