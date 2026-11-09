@@ -587,6 +587,29 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   /**
+   * Stream time to content time, for the content tracker's playhead and
+   * duration. Returns undefined when the SDK cannot convert — including on a
+   * disposed tracker — so the caller keeps reporting stream time rather than a
+   * wrong number.
+   *
+   * Measured behaviour on the sibling DASH integration: on VOD it subtracts the
+   * ad time played so far (gap exactly 10.010 after a 10.01s pre-roll, and 0
+   * during it); on live it returns the input unchanged, for both the playhead
+   * and the DVR duration.
+   *
+   * Takes and returns SECONDS, the unit the StreamManager's time API uses.
+   */
+  contentTimeForStreamTime(streamTime) {
+    try {
+      const contentTime = this.player?.contentTimeForStreamTime?.(streamTime);
+      return typeof contentTime === 'number' ? contentTime : undefined;
+    } catch (error) {
+      nrvideo.Log.warn('CAFDaiTracker: Failed to convert stream time', error);
+      return undefined;
+    }
+  }
+
+  /**
    * True while an ad is on screen. Checked by CAFTracker so content QoE stands
    * down during breaks.
    *

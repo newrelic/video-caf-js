@@ -457,6 +457,48 @@ describe('a real CAFDaiTracker attached to a real CAFTracker', () => {
     expect(dai.sendResume).not.toHaveBeenCalled();
   });
 
+  // A 10-minute VOD with 4 minutes of stitched ads reported contentDuration as
+  // 14 minutes and overstated the playhead by up to 4 minutes, so percent
+  // viewed and completion were wrong on every session.
+  it('reports content playhead and duration without the stitched ad time', () => {
+    const { tracker, sm } = wireUp(100);
+    // 40s of ads played so far; getDurationSec() is the 600s stitched total.
+    sm.contentTimeForStreamTime = jest.fn((streamTime) => streamTime - 40);
+
+    expect(tracker.getPlayhead()).toBe(60000);
+    expect(tracker.getDuration()).toBe(560000);
+  });
+
+  it('keeps reporting stream time when the SDK cannot convert', () => {
+    const { tracker, sm } = wireUp(100);
+    sm.contentTimeForStreamTime = jest.fn(() => undefined);
+
+    expect(tracker.getPlayhead()).toBe(100000);
+    expect(tracker.getDuration()).toBe(600000);
+  });
+
+  // The CSAI CAFAdsTracker has no conversion, and CAF's own clock is already
+  // content time there — the ads are a separate break stream.
+  it('keeps reporting stream time for an ads tracker with no conversion', () => {
+    const pm = createMockPlayerManager(100);
+    const tracker = new CAFTracker(createMockReceiverContext(pm), { info: {} });
+
+    expect(tracker.adsTracker.contentTimeForStreamTime).toBeUndefined();
+    expect(tracker.getPlayhead()).toBe(100000);
+    expect(tracker.getDuration()).toBe(600000);
+  });
+
+  // The real PlayerManager returns NaN from getDurationSec() when it has no
+  // player (verified in the v3 receiver bundle), and NaN * 1000 is NaN — which
+  // used to be published as contentDuration.
+  it('reports null rather than NaN for a duration the receiver does not know', () => {
+    const pm = createMockPlayerManager();
+    pm.getDurationSec = jest.fn(() => NaN);
+    const tracker = new CAFTracker(createMockReceiverContext(pm), { info: {} });
+
+    expect(tracker.getDuration()).toBeNull();
+  });
+
   // A DAI stream ERROR is reported on the CONTENT tracker, and a failed stream
   // request is exactly when the receiver has nothing loaded. The attribute
   // collection that follows runs inside the IMA SDK's event dispatch, so a

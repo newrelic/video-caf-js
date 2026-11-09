@@ -192,16 +192,37 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   getPlayhead () {
     const time = this.readFromPlayer(() => this.player.getCurrentTimeSec(), 0)
     if (typeof time !== 'number' || !Number.isFinite(time)) return 0
-    return time * 1000
+    return this.toContentTime(time) * 1000
+  }
+
+  /**
+   * Stream time to content time, both in SECONDS.
+   *
+   * Under SSAI the stitched stream's clock includes every ad played so far, so
+   * reporting it directly overstates content progress by the cumulative ad
+   * duration — a 10-minute VOD with 4 minutes of ads reported a 14-minute
+   * contentDuration and a playhead up to 4 minutes ahead of the content. An ads
+   * tracker that can convert is asked to; anything else — no ads, or the CSAI
+   * CAFAdsTracker, where CAF's clock is already content time — reports the
+   * clock as-is.
+   *
+   * There is deliberately no isLive() skip: the SDK's conversion is an identity
+   * on live, which is indistinguishable from not converting at all, so a skip
+   * would add a branch for no measured gain and diverge from the siblings.
+   */
+  toContentTime (streamTime) {
+    const converted = this.adsTracker?.contentTimeForStreamTime?.(streamTime)
+    return typeof converted === 'number' && Number.isFinite(converted)
+      ? converted
+      : streamTime
   }
 
   getDuration () {
-    try {
-      return this.player.getDurationSec() * 1000
-    }
-    catch (e) {
-      return null
-    }
+    // Same stream-vs-content distinction as getPlayhead: a stitched VOD's
+    // duration includes every inserted ad.
+    const duration = this.readFromPlayer(() => this.player.getDurationSec())
+    if (typeof duration !== 'number' || !Number.isFinite(duration)) return null
+    return this.toContentTime(duration) * 1000
   }
 
   getBitrate () {

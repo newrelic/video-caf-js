@@ -965,6 +965,36 @@ describe('CAFDaiTracker — interface CAFTracker depends on', () => {
   });
 });
 
+// Under SSAI the stitched clock includes every ad played so far, so the content
+// tracker cannot report it as content progress. The SDK's own conversion is the
+// only thing that knows the offset; CAFTracker asks for it through here.
+describe('CAFDaiTracker — stream time to content time', () => {
+  it('converts through the StreamManager', () => {
+    const sm = createMockStreamManager();
+    sm.contentTimeForStreamTime = jest.fn(() => 10.5);
+    const tracker = newTracker(sm);
+
+    expect(tracker.contentTimeForStreamTime(20.51)).toBe(10.5);
+    expect(sm.contentTimeForStreamTime).toHaveBeenCalledWith(20.51);
+  });
+
+  // undefined, not a number: the caller then keeps reporting stream time rather
+  // than a wrong one.
+  it('returns undefined when the SDK cannot convert', () => {
+    const sm = createMockStreamManager();
+    sm.contentTimeForStreamTime = jest.fn(() => { throw new Error('nope') });
+
+    expect(newTracker(sm).contentTimeForStreamTime(5)).toBeUndefined();
+  });
+
+  it('returns undefined on a disposed tracker instead of throwing', () => {
+    const tracker = newTracker();
+    tracker.dispose();
+
+    expect(tracker.contentTimeForStreamTime(5)).toBeUndefined();
+  });
+});
+
 describe('CAFDaiTracker — isAdPlaying', () => {
   const cuePoints = [
     { start: 0, end: 10.01, played: false },
