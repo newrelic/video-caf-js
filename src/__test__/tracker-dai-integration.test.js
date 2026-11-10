@@ -179,15 +179,24 @@ function createMockReceiverContext(playerManager) {
   return { getPlayerManager: () => playerManager, getSenders: () => [] };
 }
 
+/**
+ * The send* methods MOVE state, as video-core's VideoTracker does
+ * (goBufferStart sets isBuffering, goSeekStart sets isSeeking, and so on). A
+ * fake whose state never moves cannot exercise close-routing at all: every
+ * close looks like "nothing was open", which is precisely the condition
+ * closingTracker() has to tell apart.
+ */
 function makeFakeAdsTracker(isAdBreak) {
+  const state = { isAdBreak, isBuffering: false, isSeeking: false, isPaused: false };
+  const moves = (flag, value) => jest.fn(() => { state[flag] = value; });
   return {
-    state: { isAdBreak },
-    sendPause: jest.fn(),
-    sendBufferStart: jest.fn(),
-    sendBufferEnd: jest.fn(),
-    sendResume: jest.fn(),
-    sendSeekStart: jest.fn(),
-    sendSeekEnd: jest.fn(),
+    state,
+    sendPause: moves('isPaused', true),
+    sendResume: moves('isPaused', false),
+    sendBufferStart: moves('isBuffering', true),
+    sendBufferEnd: moves('isBuffering', false),
+    sendSeekStart: moves('isSeeking', true),
+    sendSeekEnd: moves('isSeeking', false),
     onBitrateChanged: jest.fn(),
     sendError: jest.fn(),
   };
@@ -279,6 +288,37 @@ describe('CAFTracker — liveness', () => {
     expect(withPlayer({ getPlayerState: () => 'IDLE' }).isLive()).toBeNull();
   });
 
+  /**
+   * Measured on the emulator: a live DAI view stored
+   * `contentIsLive: false` on CONTENT_REQUEST and `true` on every later event.
+   * CONTENT_REQUEST fires while the player is still BUFFERING, before the DVR
+   * window exists, and a null range there is indistinguishable from VOD's
+   * permanently-null range. Mislabelling a live view as VOD corrupts
+   * live-vs-VOD segmentation, so answer unknown instead of guessing.
+   */
+  it('reports unknown while buffering with no range yet, rather than guessing VOD', () => {
+    const tracker = withPlayer({
+      getPlayerState: () => 'BUFFERING',
+      getLiveSeekableRange: () => null,
+    });
+    expect(tracker.isLive()).toBeNull();
+  });
+
+  it('still reports live while buffering once the range exists', () => {
+    const tracker = withPlayer({
+      getPlayerState: () => 'BUFFERING',
+      getLiveSeekableRange: () => ({ start: 10, end: 45 }),
+    });
+    expect(tracker.isLive()).toBe(true);
+  });
+
+  it('reports not live once the player is presenting with no range', () => {
+    // By PLAYING/PAUSED a live stream has its DVR window, so a null range here
+    // really does mean VOD.
+    expect(withPlayer({ getPlayerState: () => 'PLAYING', getLiveSeekableRange: () => null }).isLive()).toBe(false);
+    expect(withPlayer({ getPlayerState: () => 'PAUSED', getLiveSeekableRange: () => null }).isLive()).toBe(false);
+  });
+
   it('reports unknown rather than throwing when the getters are unavailable', () => {
     const tracker = withPlayer({
       getPlayerState: undefined,
@@ -350,11 +390,56 @@ describe('CAFTracker — ads-activity predicates', () => {
   // break charges the whole pod to content.
   it('allows closing a content transition that is already open mid-break', () => {
     const tracker = contentTracker();
-    tracker.adsTracker = { state: { isAdBreak: true }, isAdPlaying: () => true };
+    tracker.adsTracker = {
+      state: { isAdBreak: true, isBuffering: true },
+      isAdPlaying: () => true,
+    };
 
-    expect(tracker.canCloseContentTransition('isBuffering')).toBe(false);
+    // Only the ad holds it open, so the close belongs to the ad.
+    expect(tracker.closingTracker('isBuffering')).toBe(tracker.adsTracker);
+
+    // Content holds one too — content wins, so the pod is not billed to it.
     tracker.state.isBuffering = true;
-    expect(tracker.canCloseContentTransition('isBuffering')).toBe(true);
+    expect(tracker.closingTracker('isBuffering')).toBe(tracker);
+  });
+
+  /**
+   * Measured on the emulator: DAI seeks past the ad at break end, so SEEKING
+   * opens on the ads tracker while isAdPlaying() is true, and SEEKED arrives
+   * AFTER the break has ended. Routing that close by "is a break active?"
+   * sends it to content, where video-core drops it (nothing open there) and
+   * the ad-side seek is never closed for the rest of the view.
+   */
+  it('closes an ad-side transition on the ads tracker after the break has ended', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = {
+      state: { isAdBreak: false, isSeeking: true },
+      isAdPlaying: () => false,          // the break is over
+    };
+
+    expect(tracker.isAdsTrackerActive()).toBe(false);
+    expect(tracker.closingTracker('isSeeking')).toBe(tracker.adsTracker);
+  });
+
+  it('routes a close to content when neither side holds the transition open', () => {
+    const tracker = contentTracker();
+    tracker.adsTracker = { state: { isAdBreak: false }, isAdPlaying: () => false };
+
+    expect(tracker.closingTracker('isSeeking')).toBe(tracker);
+  });
+
+  it('prefers content when both sides hold the same transition open', () => {
+    // A stall that began before the break belongs to content: video-core bills
+    // (stopTime - startTime), so closing the ad's copy first would leave the
+    // content stall open and charge the whole pod to content rebuffering.
+    const tracker = contentTracker();
+    tracker.state.isBuffering = true;
+    tracker.adsTracker = {
+      state: { isAdBreak: true, isBuffering: true },
+      isAdPlaying: () => true,
+    };
+
+    expect(tracker.closingTracker('isBuffering')).toBe(tracker);
   });
 });
 

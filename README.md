@@ -176,15 +176,41 @@ const receiverContext = cast.framework.CastReceiverContext.getInstance();
 const tracker = new CAFTracker(receiverContext, options);
 const playerManager = receiverContext.getPlayerManager();
 
-// Build the StreamManager/CAFDaiTracker lazily, on the first LOAD request —
-// not here. Verified against the Chromecast Device Emulator:
-// document.querySelector('video') returns null this early, because
-// <cast-media-player>'s internal <video> element isn't in the DOM yet at
-// this point in the receiver's lifecycle, and `new
-// google.ima.dai.api.StreamManager(null)` throws "Media element must be
-// provided." One instance is built and reused across every LOAD in the
-// session — DAI event handling already assumes a long-lived tracker across
-// stream changes (see `onStreamInitialized` in `src/dai.js`).
+// <cast-media-player> keeps its <video> inside a SHADOW ROOT, so
+// document.querySelector('video') is null at EVERY point in the receiver
+// lifecycle. Reach through the shadow root, or
+// `new google.ima.dai.api.StreamManager(null)` throws "Media element must be
+// provided." Measured against the Chromecast Device Emulator, CAF 3.0.0157.
+const getMediaElement = () =>
+  document.querySelector('cast-media-player').shadowRoot.querySelector('video');
+
+// requestStream() returns VOID, not a promise. The stitched stream arrives on
+// StreamEvent.Type.LOADED and failures on StreamEvent.Type.ERROR, so wrap both
+// into the promise the LOAD interceptor expects. Always settle it — CAF waits
+// on this promise and a silent request would hang the receiver with no media.
+function requestStreamAsync(streamManager, streamRequest, timeoutMs = 15000) {
+  const StreamEvent = google.ima.dai.api.StreamEvent.Type;
+  return new Promise((resolve, reject) => {
+    let timer;
+    const settle = (fn) => (arg) => {
+      clearTimeout(timer);
+      streamManager.removeEventListener(StreamEvent.LOADED, onLoaded);
+      streamManager.removeEventListener(StreamEvent.ERROR, onError);
+      fn(arg);
+    };
+    const onLoaded = (event) => settle(resolve)(event.getStreamData());
+    const onError = () => settle(reject)(new Error('DAI stream request failed'));
+    timer = setTimeout(() => settle(reject)(new Error('DAI request timed out')), timeoutMs);
+    streamManager.addEventListener(StreamEvent.LOADED, onLoaded);
+    streamManager.addEventListener(StreamEvent.ERROR, onError);
+    streamManager.requestStream(streamRequest);
+  });
+}
+
+// Build the StreamManager/CAFDaiTracker lazily, on the first LOAD request.
+// One instance is built and reused across every LOAD in the session — DAI
+// event handling already assumes a long-lived tracker across stream changes
+// (see `onStreamInitialized` in `src/dai.js`).
 let streamManager;
 let daiTracker;
 
@@ -192,25 +218,47 @@ playerManager.setMessageInterceptor(
   cast.framework.messages.MessageType.LOAD,
   (loadRequestData) => {
     if (!daiTracker) {
-      const videoElement = document.querySelector('video');
-      streamManager = new google.ima.dai.api.StreamManager(videoElement);
+      streamManager = new google.ima.dai.api.StreamManager(getMediaElement());
       daiTracker = new CAFDaiTracker(streamManager, {
         playerManager,
         contentTracker: tracker,
       });
       // Replaces the auto-created native CAFAdsTracker.
       tracker.setAdsTracker(daiTracker);
+
+      // REQUIRED FOR LIVE — see below.
+      forwardDaiMetadata(playerManager, streamManager);
     }
 
-    return streamManager.requestStream(buildStreamRequest(loadRequestData)).then((streamData) => {
-      loadRequestData.media.contentUrl = streamData.url;
-      return loadRequestData;
-    });
+    return requestStreamAsync(streamManager, buildStreamRequest(loadRequestData))
+      .then((streamData) => {
+        loadRequestData.media.contentUrl = streamData.url;
+        // The sender declared a contentType for ITS url, not the stitched one.
+        loadRequestData.media.contentType = 'application/x-mpegurl';
+        return loadRequestData;
+      });
   }
 );
 
 receiverContext.start();
 ```
+
+#### Live streams require `forwardDaiMetadata()`
+
+**A live DAI stream reports ZERO ad events without it.** The IMA DAI SDK learns about live ad breaks only from the stream's own timed metadata, and nothing forwards that automatically. Measured on the live asset: 124 s of playback produced a full content lifecycle and not one ad event, while the manifest carried its `<EventStream schemeIdUri="urn:google:dai:2018">` the whole time. The signal was present and simply unconsumed — which looks identical to a stream that served no ads.
+
+```javascript
+import { forwardDaiMetadata } from '@newrelic/video-caf';
+// UMD: CAFTracker.forwardDaiMetadata(playerManager, streamManager)
+
+const stopForwarding = forwardDaiMetadata(playerManager, streamManager);
+```
+
+It subscribes to `cast.framework.events.EventType.TIMED_METADATA_CHANGED`, keeps only events whose `schemeIdUri` is DAI's, and hands the SDK the `messageData` with the stream time. It returns a disposer. On VOD it is harmless — cue points carry the breaks there — so register it unconditionally rather than branching on stream type.
+
+Forwarding is the application's responsibility, not the library's: the tracker never calls it. It ships because the payload is nested three levels down (`timedMetadataInfo.dashTimedMetadata.eventNode.attributes.messageData`) and the usable timestamp is `timedMetadataInfo.startTime`, **not** the MPD-relative `presentationTime` — and getting either wrong forwards nothing at all, silently.
+
+> ⚠️ **HLS is not covered.** This was measured on DASH only: DAI's HLS output does not play under the Shaka build in the emulator, so CAF's HLS timed-metadata shape (`EventType.ID3` / `hlsTimedMetadata`) could not be verified. A receiver serving **live DAI over HLS** still needs that path written and tested on a real device.
 
 > **Important:** `setAdsTracker()` replaces the auto-created native `CAFAdsTracker`. DAI and native VMAP/VAST ad breaks are mutually exclusive per session — a given receiver session tracks either DAI ad breaks or native ad breaks, never both.
 

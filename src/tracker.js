@@ -101,18 +101,31 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   /**
-   * Whether a content transition that is ALREADY OPEN may be closed during an
-   * ad break. It always may: video-core bills (stopTime - startTime) to
-   * totalRebufferingTime and pairs goSeekEnd with isSeeking, so holding a
-   * transition open across a break charges the whole pod to content. A stall
-   * that begins just before an ad boundary is a common SSAI case.
+   * The tracker that should receive the CLOSE of transition `flag`
+   * (`isBuffering`, `isSeeking`, `isPaused`).
    *
-   * This is the other half of the asymmetry: OPENING a content transition
-   * during a break is suppressed (or routed to the ads tracker), closing one is
-   * not.
+   * Closes are routed by WHO HOLDS THE TRANSITION OPEN, not by whether a break
+   * is currently active — those are different questions, and conflating them
+   * leaks transitions. Opening is still gated on the break (see onSeekStart,
+   * onBuffering): that asymmetry is deliberate.
+   *
+   * Order matters:
+   *  - Content first. A stall that began before the break belongs to content,
+   *    and video-core bills (stopTime - startTime) to totalRebufferingTime, so
+   *    holding it open across a pod charges the whole pod to content
+   *    rebuffering. A stall just before an ad boundary is a common SSAI case.
+   *  - Then the ads tracker, EVEN IF THE BREAK HAS ALREADY ENDED. Measured on
+   *    the emulator: DAI seeks past the ad at break end, so SEEKING opens on
+   *    the ads tracker while isAdPlaying() is true and SEEKED lands after it
+   *    has gone false. Sending that close to content is silently dropped by
+   *    video-core — nothing is open there — and the ad-side seek then stays
+   *    open for the rest of the view.
+   *  - Otherwise content, where video-core gates a close with nothing open.
    */
-  canCloseContentTransition (flag) {
-    return !this.isAdsTrackerActive() || !!this.state?.[flag]
+  closingTracker (flag) {
+    if (this.state?.[flag]) return this
+    if (this.adsTracker?.state?.[flag]) return this.adsTracker
+    return this
   }
 
   /**
@@ -312,7 +325,18 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     const range = this.readFromPlayer(
       () => this.player.getLiveSeekableRange(), undefined
     )
-    return range === undefined ? null : range !== null
+    if (range === undefined) return null
+    if (range !== null) return true
+
+    // A null range means "not live" for VOD but only "not known yet" during
+    // live startup, and the two are indistinguishable until the media player
+    // has actually begun presenting. Measured: a live DAI view stored
+    // contentIsLive:false on CONTENT_REQUEST — which fires while BUFFERING,
+    // before the DVR window exists — and true on every event after it.
+    // Mislabelling a live view as VOD corrupts live-vs-VOD segmentation, so
+    // this answers unknown rather than guessing.
+    if (state === 'BUFFERING') return null
+    return false
   }
 
   getPlayerVersion () {
@@ -366,13 +390,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
       }
     }
     else {
-      // A content buffer already open closes on the content tracker even
-      // mid-break; otherwise the stall belongs to the ad.
-      if (this.canCloseContentTransition('isBuffering')) {
-        this.sendBufferEnd()
-      } else {
-        this.adsTracker.sendBufferEnd();
-      }
+      // Closes go to whichever tracker holds the buffer open — see
+      // closingTracker(). Routing by "is a break active?" dropped the close.
+      this.closingTracker('isBuffering').sendBufferEnd()
     }
   }
 
@@ -381,13 +401,8 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onPlay (ev) {
-    // A content pause already open closes on the content tracker even
-    // mid-break — the resume is what pairs with it.
-    if (this.canCloseContentTransition('isPaused')) {
-      this.sendResume()
-    } else {
-      this.adsTracker.sendResume()
-    }
+    // The resume pairs with whichever tracker holds the pause open.
+    this.closingTracker('isPaused').sendResume()
   }
 
   onPause (ev) {
@@ -419,12 +434,9 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   onSeekEnd (ev) {
-    // A content seek already open closes on the content tracker even mid-break.
-    if (this.canCloseContentTransition('isSeeking')) {
-      this.sendSeekEnd()
-    } else {
-      this.adsTracker.sendSeekEnd()
-    }
+    // DAI seeks past the ad at break end, so this routinely arrives after the
+    // break has ended while the ad-side seek is still open.
+    this.closingTracker('isSeeking').sendSeekEnd()
   }
 
   onShutdown (ev) {

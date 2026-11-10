@@ -119,6 +119,14 @@
             // VMAP/VAST ad breaks are mutually exclusive per session, so only
             // call this if the content being loaded actually uses DAI stitching.
             tracker.setAdsTracker(daiTracker);
+
+            // REQUIRED FOR LIVE. The IMA DAI SDK learns about live ad breaks
+            // only from the stream's own timed metadata, and nothing forwards
+            // it automatically: without this line a live stream reports a full
+            // content lifecycle and ZERO ad events, which looks exactly like a
+            // stream that served no ads. Harmless on VOD, where cue points
+            // carry the breaks, so it is registered unconditionally.
+            CAFTracker.forwardDaiMetadata(playerManager, streamManager);
         }
 
         return requestStreamAsync(buildStreamRequest(loadRequestData)).then(streamData => {
