@@ -24,22 +24,32 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   registerListeners() {
-    /** CORE Events */
+    const ET = cast.framework.events.EventType;
 
-    this.player.addEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, event => { this.onRequestFocusState(event) })
-    this.player.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, event => { this.onPlayerLoading(event) })
-    this.player.addEventListener(cast.framework.events.EventType.LOADED_METADATA, event => { this.onLoadedMetadata(event) }) 
-    this.player.addEventListener(cast.framework.events.EventType.REQUEST_PLAY, event => { this.onRequestPlay(event) })
-    this.player.addEventListener(cast.framework.events.EventType.PLAYING, event => { this.onPlaying(event) })
-    this.player.addEventListener(cast.framework.events.EventType.PLAY, event => { this.onPlay(event) })
-    this.player.addEventListener(cast.framework.events.EventType.PAUSE, event => { this.onPause(event) })
-    this.player.addEventListener(cast.framework.events.EventType.BUFFERING, event => { this.onBuffering(event) })
-    this.player.addEventListener(cast.framework.events.EventType.BITRATE_CHANGED, event => { this.onBitrateChanged(event) });
-    this.player.addEventListener(cast.framework.events.EventType.SEEKING, event => { this.onSeekStart(event) })
-    this.player.addEventListener(cast.framework.events.EventType.SEEKED, event => { this.onSeekEnd(event) })
-    this.player.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
-    this.player.addEventListener(cast.framework.events.EventType.MEDIA_STATUS, event => { this.onMediaStatus(event) })
-    this.player.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onMediaFinished(event) })
+    // Handler references are stored for the same reason as in ads.js and
+    // dai.js: removeEventListener matches on IDENTITY, and registering arrow
+    // wrappers while unregistering bare methods removed nothing, so a disposed
+    // tracker kept receiving CAF events.
+    this.eventHandlers = {
+      [ET.REQUEST_FOCUS_STATE]: (event) => this.onRequestFocusState(event),
+      [ET.PLAYER_LOADING]: (event) => this.onPlayerLoading(event),
+      [ET.LOADED_METADATA]: (event) => this.onLoadedMetadata(event),
+      [ET.REQUEST_PLAY]: (event) => this.onRequestPlay(event),
+      [ET.PLAYING]: (event) => this.onPlaying(event),
+      [ET.PLAY]: (event) => this.onPlay(event),
+      [ET.PAUSE]: (event) => this.onPause(event),
+      [ET.BUFFERING]: (event) => this.onBuffering(event),
+      [ET.BITRATE_CHANGED]: (event) => this.onBitrateChanged(event),
+      [ET.SEEKING]: (event) => this.onSeekStart(event),
+      [ET.SEEKED]: (event) => this.onSeekEnd(event),
+      [ET.ERROR]: (event) => this.onError(event),
+      [ET.MEDIA_STATUS]: (event) => this.onMediaStatus(event),
+      [ET.MEDIA_FINISHED]: (event) => this.onMediaFinished(event),
+    };
+
+    Object.entries(this.eventHandlers).forEach(([type, handler]) =>
+      this.player.addEventListener(type, handler)
+    );
 
     if (!this.adsTracker) {
       this.setAdsTracker(new CAFAdsTracker(this.player))
@@ -47,20 +57,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
   }
 
   unregisterListeners() {
-    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_FOCUS_STATE, this.onRequestFocusState);
-    this.player.removeEventListener(cast.framework.events.EventType.PLAYER_LOADING, this.onPlayerLoading);
-    this.player.removeEventListener(cast.framework.events.EventType.LOADED_METADATA, this.onLoadedMetadata);
-    this.player.removeEventListener(cast.framework.events.EventType.REQUEST_PLAY, this.onRequestPlay);
-    this.player.removeEventListener(cast.framework.events.EventType.PLAYING, this.onPlaying);
-    this.player.removeEventListener(cast.framework.events.EventType.PLAY, this.onPlay);
-    this.player.removeEventListener(cast.framework.events.EventType.PAUSE, this.onPause);
-    this.player.removeEventListener(cast.framework.events.EventType.BUFFERING, this.onBuffering);
-    this.player.removeEventListener(cast.framework.events.EventType.BITRATE_CHANGED, this.onBitrateChanged);
-    this.player.removeEventListener(cast.framework.events.EventType.SEEKING, this.onSeekStart);
-    this.player.removeEventListener(cast.framework.events.EventType.SEEKED, this.onSeekEnd);
-    this.player.removeEventListener(cast.framework.events.EventType.ERROR, this.onError);
-    this.player.removeEventListener(cast.framework.events.EventType.MEDIA_STATUS, this.onMediaStatus);
-    this.player.removeEventListener(cast.framework.events.EventType.MEDIA_FINISHED, this.onMediaFinished);
+    if (!this.player || !this.eventHandlers) return;
+
+    Object.entries(this.eventHandlers).forEach(([type, handler]) =>
+      this.player.removeEventListener(type, handler)
+    );
+    this.eventHandlers = null;
   }
 
   reset () {

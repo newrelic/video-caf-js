@@ -702,3 +702,89 @@ describe('a real CAFDaiTracker attached to a real CAFTracker', () => {
     expect(starts).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * Both trackers registered CAF listeners as arrow wrappers and then tried to
+ * remove bare method references. removeEventListener matches on identity, so
+ * NOTHING was removed and a disposed tracker kept receiving events.
+ *
+ * It matters most at setAdsTracker(): video-core disposes the auto-created
+ * CAFAdsTracker, but a dispose that removes no listeners leaves it live on the
+ * same PlayerManager as the DAI tracker. Its funnel to the parent also survives
+ * — video-core's Emitter.off uses indexOf against a bound function, so
+ * disposeAdsTracker's off('*', funnelAdEvents) cannot match either (upstream;
+ * not fixable here). Stopping the events at the source is what breaks the
+ * chain: a tracker that hears nothing emits nothing.
+ *
+ * dai.js already stored its guarded handler references for exactly this reason.
+ */
+describe('listener removal actually removes the registered functions', () => {
+  function trackingPlayerManager() {
+    const live = new Map();   // type -> Set(handler)
+    return {
+      ...createMockPlayerManager(),
+      addEventListener: jest.fn((type, fn) => {
+        if (!live.has(type)) live.set(type, new Set());
+        live.get(type).add(fn);
+      }),
+      removeEventListener: jest.fn((type, fn) => {
+        live.get(type)?.delete(fn);
+      }),
+      liveCount: () => [...live.values()].reduce((n, s) => n + s.size, 0),
+    };
+  }
+
+  it('CAFAdsTracker removes every listener it registered', () => {
+    const pm = trackingPlayerManager();
+    const ads = new CAFAdsTracker(pm);
+
+    expect(pm.liveCount()).toBeGreaterThan(0);
+    ads.unregisterListeners();
+    expect(pm.liveCount()).toBe(0);
+  });
+
+  it('CAFTracker removes every listener it registered', () => {
+    const pm = trackingPlayerManager();
+    const tracker = new CAFTracker(createMockReceiverContext(pm), { info: {} });
+
+    const own = Object.values(tracker.eventHandlers);
+    const before = pm.liveCount();
+    expect(own.length).toBeGreaterThan(0);
+
+    tracker.unregisterListeners();
+
+    // Exactly its own come off, no more and no less. The rest belong to the
+    // auto-created CAFAdsTracker, which shares this PlayerManager and is
+    // disposed by video-core rather than from here.
+    expect(pm.liveCount()).toBe(before - own.length);
+  });
+
+  it('a disposed CAFAdsTracker stops reporting break events', () => {
+    // The practical consequence: replaced by setAdsTracker() but still live,
+    // it double-reports every CAF-native break alongside the DAI tracker.
+    const pm = trackingPlayerManager();
+    const ads = new CAFAdsTracker(pm);
+    ads.sendAdBreakStart = jest.fn();
+
+    const fire = () => [...pm.addEventListener.mock.calls]
+      .filter(([type]) => type === cast.framework.events.EventType.BREAK_STARTED)
+      .forEach(([, fn]) => { if (pm.removeEventListener.mock.calls.every(([, r]) => r !== fn)) fn({ breakId: 'b1' }); });
+
+    fire();
+    expect(ads.sendAdBreakStart).toHaveBeenCalledTimes(1);
+
+    ads.sendAdBreakStart.mockClear();
+    ads.unregisterListeners();
+    fire();
+    expect(ads.sendAdBreakStart).not.toHaveBeenCalled();
+  });
+
+  it('unregisterListeners is safe after dispose() has nulled the player', () => {
+    const pm = trackingPlayerManager();
+    const tracker = new CAFTracker(createMockReceiverContext(pm), { info: {} });
+
+    tracker.unregisterListeners();
+    tracker.player = null;
+    expect(() => tracker.unregisterListeners()).not.toThrow();
+  });
+});

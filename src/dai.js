@@ -46,6 +46,21 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
       nrvideo.Log.warn('CAFDaiTracker: StreamManager or DAI API not available');
       return;
     }
+
+    // Documented as "effectively required, though not validated". The
+    // consequence worth warning about is not the missing attributes but the
+    // CONTENT GUARD: without a playerManager getStreamTimeMs() is permanently
+    // unreadable, so isAdPlaying()'s cue-point arm can never match a window.
+    // A pre-roll still works (its window starts at 0 and the break object
+    // covers it), which is exactly why this degrades unnoticed — but EVERY
+    // mid-roll lead-in silently fails to suppress content events.
+    if (!this.playerManager) {
+      nrvideo.Log.warn(
+        'CAFDaiTracker: no options.playerManager — playhead, duration and bitrate ' +
+        'will be unavailable, and mid-roll content suppression will not work. ' +
+        'Pass receiverContext.getPlayerManager().'
+      );
+    }
     const StreamEvent = sdk.StreamEvent.Type;
 
     /**

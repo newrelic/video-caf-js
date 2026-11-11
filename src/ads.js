@@ -51,21 +51,39 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
   registerListeners() {
     if (!this.player) return;
 
-    this.player.addEventListener(cast.framework.events.EventType.BREAK_STARTED, (event) => {this.onStarted(event)});
-    this.player.addEventListener(cast.framework.events.EventType.BREAK_ENDED, (event) => {this.onEnded(event)});
-    this.player.addEventListener(cast.framework.events.EventType.BREAK_CLIP_LOADING,(event) => {this.onClipLoading(event)});
-    this.player.addEventListener(cast.framework.events.EventType.BREAK_CLIP_STARTED,(event) => {this.onClipStarted(event)});
-    this.player.addEventListener(cast.framework.events.EventType.BREAK_CLIP_ENDED,(event) => {this.onClipEnded(event)});
-    this.player.addEventListener(cast.framework.events.EventType.TIME_UPDATE, (event) => {this.onTimeUpdate(event)});
+    const ET = cast.framework.events.EventType;
+
+    // Store the handler references. removeEventListener matches on IDENTITY,
+    // so registering an arrow wrapper and later passing the bare method
+    // removed nothing at all — this tracker stayed attached to the
+    // PlayerManager after dispose(). That matters at setAdsTracker(): a still
+    // live auto-created ads tracker double-reports every CAF-native break
+    // alongside the DAI tracker. (video-core's own disposeAdsTracker() has the
+    // same class of bug in Emitter.off, which indexOf-matches a bound
+    // function; stopping the events here is what breaks the chain, because a
+    // tracker that hears nothing emits nothing.)
+    this.eventHandlers = {
+      [ET.BREAK_STARTED]: (event) => this.onStarted(event),
+      [ET.BREAK_ENDED]: (event) => this.onEnded(event),
+      [ET.BREAK_CLIP_LOADING]: (event) => this.onClipLoading(event),
+      [ET.BREAK_CLIP_STARTED]: (event) => this.onClipStarted(event),
+      [ET.BREAK_CLIP_ENDED]: (event) => this.onClipEnded(event),
+      [ET.TIME_UPDATE]: (event) => this.onTimeUpdate(event),
+    };
+
+    Object.entries(this.eventHandlers).forEach(([type, handler]) =>
+      this.player.addEventListener(type, handler)
+    );
   }
 
   unregisterListeners() {
-    this.player.removeEventListener(cast.framework.events.EventType.BREAK_STARTED, this.onStarted);
-    this.player.removeEventListener(cast.framework.events.EventType.BREAK_ENDED, this.onEnded);
-    this.player.removeEventListener(cast.framework.events.EventType.BREAK_CLIP_LOADING, this.onClipLoading);
-    this.player.removeEventListener(cast.framework.events.EventType.BREAK_CLIP_STARTED, this.onClipStarted);
-    this.player.removeEventListener(cast.framework.events.EventType.BREAK_CLIP_ENDED, this.onClipEnded);
-    this.player.removeEventListener(cast.framework.events.EventType.TIME_UPDATE, this.onTimeUpdate);
+    // dispose() nulls the player, and video-core may call this more than once.
+    if (!this.player || !this.eventHandlers) return;
+
+    Object.entries(this.eventHandlers).forEach(([type, handler]) =>
+      this.player.removeEventListener(type, handler)
+    );
+    this.eventHandlers = null;
   }
 
   reset() {
