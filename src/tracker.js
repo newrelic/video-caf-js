@@ -126,7 +126,18 @@ export default class CAFTracker extends nrvideo.VideoTracker {
    */
   closingTracker (flag) {
     if (this.state?.[flag]) return this
-    if (this.adsTracker?.state?.[flag]) return this.adsTracker
+
+    // Disposed-aware, as isAdsTrackerActive() already is. dispose() nulls
+    // player and tag but leaves state intact, and disposeAdsTracker() never
+    // clears the PARENT's adsTracker reference — so a flag check alone still
+    // selects a tracker that has been thrown away. Its goBufferEnd() then
+    // succeeds (state survived) and the event reaches the live content session
+    // through the funnel that Emitter.off failed to detach, so a DISPOSED ads
+    // tracker emits AD_BUFFER_END into a session it no longer belongs to.
+    // Reachable when a second setAdsTracker() lands mid-transition.
+    const ads = this.adsTracker
+    if (ads?.state?.[flag] && (ads.player || ads.tag)) return ads
+
     return this
   }
 

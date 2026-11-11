@@ -267,3 +267,33 @@ describe('forwardDaiMetadata — telling "no ads" apart from "matching nothing"'
     expect(() => pm.emit(TIMED_METADATA_CHANGED, hostile)).not.toThrow();
   });
 });
+
+describe('forwardDaiMetadata is NOT idempotent', () => {
+  // Registering twice hands the SDK every event twice and doubles every
+  // AD_QUARTILE reaching New Relic — the failure this helper exists to prevent.
+  // It does not guard against that, so the behaviour is pinned here rather than
+  // left to be discovered: callers must register exactly once per
+  // StreamManager, as samples/dai/index.html does inside `if (!daiTracker)`.
+  it('registers a second handler when called twice, doubling every forward', () => {
+    const pm = makePlayerManager();
+    const sm = makeStreamManager();
+
+    forwardDaiMetadata(pm, sm);
+    forwardDaiMetadata(pm, sm);
+    pm.emit(TIMED_METADATA_CHANGED, realEvent());
+
+    expect(sm.processMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it('disposing one registration leaves the other forwarding', () => {
+    const pm = makePlayerManager();
+    const sm = makeStreamManager();
+
+    const disposeFirst = forwardDaiMetadata(pm, sm);
+    forwardDaiMetadata(pm, sm);
+    disposeFirst();
+    pm.emit(TIMED_METADATA_CHANGED, realEvent());
+
+    expect(sm.processMetadata).toHaveBeenCalledTimes(1);
+  });
+});

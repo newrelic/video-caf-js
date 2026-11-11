@@ -191,6 +191,9 @@ function makeFakeAdsTracker(isAdBreak) {
   const moves = (flag, value) => jest.fn(() => { state[flag] = value; });
   return {
     state,
+    // A LIVE tracker has a player. dispose() nulls it, and closingTracker now
+    // distinguishes the two — a fake without one reads as already disposed.
+    player: {},
     sendPause: moves('isPaused', true),
     sendResume: moves('isPaused', false),
     sendBufferStart: moves('isBuffering', true),
@@ -393,6 +396,7 @@ describe('CAFTracker — ads-activity predicates', () => {
     tracker.adsTracker = {
       state: { isAdBreak: true, isBuffering: true },
       isAdPlaying: () => true,
+      player: {},
     };
 
     // Only the ad holds it open, so the close belongs to the ad.
@@ -414,7 +418,8 @@ describe('CAFTracker — ads-activity predicates', () => {
     const tracker = contentTracker();
     tracker.adsTracker = {
       state: { isAdBreak: false, isSeeking: true },
-      isAdPlaying: () => false,          // the break is over
+      isAdPlaying: () => false,          // the break is over, but not disposed
+      player: {},
     };
 
     expect(tracker.isAdsTrackerActive()).toBe(false);
@@ -437,6 +442,7 @@ describe('CAFTracker — ads-activity predicates', () => {
     tracker.adsTracker = {
       state: { isAdBreak: true, isBuffering: true },
       isAdPlaying: () => true,
+      player: {},
     };
 
     expect(tracker.closingTracker('isBuffering')).toBe(tracker);
@@ -818,5 +824,35 @@ describe('a third-party ads tracker cannot break CAF dispatch', () => {
 
     expect(tracker.toContentTime(42)).toBe(42);
     expect(() => tracker.getDuration()).not.toThrow();
+  });
+});
+
+describe('closingTracker is disposed-aware, like isAdsTrackerActive', () => {
+  // dispose() nulls player and tag but leaves state intact, and never clears
+  // the parent's adsTracker reference. Without the liveness check a thrown-away
+  // tracker still wins the flag check and emits into a live content session.
+  const live = () => new CAFTracker(createMockReceiverContext(createMockPlayerManager()), { info: {} });
+
+  it('does not route a close to an ads tracker that has been disposed', () => {
+    const tracker = live();
+    tracker.adsTracker = {
+      state: { isAdBreak: false, isBuffering: true },
+      isAdPlaying: () => false,
+      player: null,      // dispose() nulled both
+      tag: null,
+    };
+
+    expect(tracker.closingTracker('isBuffering')).toBe(tracker);
+  });
+
+  it('still routes to a live ads tracker holding the flag', () => {
+    const tracker = live();
+    tracker.adsTracker = {
+      state: { isAdBreak: false, isBuffering: true },
+      isAdPlaying: () => false,
+      player: {},        // not disposed
+    };
+
+    expect(tracker.closingTracker('isBuffering')).toBe(tracker.adsTracker);
   });
 });
