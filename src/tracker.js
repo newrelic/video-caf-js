@@ -344,8 +344,13 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     // has actually begun presenting. Measured: a live DAI view stored
     // contentIsLive:false on CONTENT_REQUEST — which fires while BUFFERING,
     // before the DVR window exists — and true on every event after it.
-    // Mislabelling a live view as VOD corrupts live-vs-VOD segmentation, so
-    // this answers unknown rather than guessing.
+    // This is a TRADE, not a strict win. It buys "live views are no longer
+    // mislabelled VOD on their first event" and it costs "a VOD startup
+    // failure reported while buffering now lands in neither bucket" —
+    // contentIsLive is in QOE_AGGREGATE_KEYS and copied by `key in obj`, so
+    // the null propagates to the QoE aggregate too. Taken because a wrong
+    // bucket corrupts segmentation for everyone reading it, while an absent
+    // one only withholds; reverse it if VOD error attribution matters more.
     if (state === 'BUFFERING') return null
     return false
   }

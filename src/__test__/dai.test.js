@@ -1121,8 +1121,11 @@ describe('CAFDaiTracker — isAdPlaying', () => {
     const { sm, tracker } = withCuePoints(315, [
       { start: 310.012, end: 320.022, played: false },
     ]);
-    // The ad started 1s into the window, so getPlayhead() reads 1000ms — which
-    // falls outside the 310-320 window and would report false.
+    // AD_BREAK_ENDED below clears adStartStreamTime, so getPlayhead() falls
+    // back to raw stream time (315000ms) rather than an ad-relative value.
+    // Either way it is not a stream time in SECONDS, which is the unit the
+    // 310-320 cue window is expressed in — so a getPlayhead()-based
+    // isAdPlaying() would report false here. That is the point of the test.
     sm._emit(StreamEventType.STARTED, { getAd: () => makeAd() });
     sm._emit(StreamEventType.AD_BREAK_ENDED, {});
 

@@ -170,11 +170,31 @@ For content stitched with Google's [Dynamic Ad Insertion (DAI)](https://develope
 ```
 
 ```javascript
-import CAFTracker, { CAFDaiTracker } from '@newrelic/video-caf';
+import CAFTracker, { CAFDaiTracker, forwardDaiMetadata } from '@newrelic/video-caf';
 
 const receiverContext = cast.framework.CastReceiverContext.getInstance();
 const tracker = new CAFTracker(receiverContext, options);
 const playerManager = receiverContext.getPlayerManager();
+
+// Build the DAI stream request. format = 'dash' is REQUIRED, not a
+// preference: IMA DAI serves HLS by default and forwardDaiMetadata() reads the
+// DASH EventStream, so an HLS stream reports zero live ad events.
+function buildStreamRequest(loadRequestData) {
+  const isLive = loadRequestData.media?.customData?.streamType === 'live';
+
+  if (isLive) {
+    const streamRequest = new google.ima.dai.api.LiveStreamRequest();
+    streamRequest.assetKey = 'YOUR_LIVE_ASSET_KEY';
+    streamRequest.format = 'dash';
+    return streamRequest;
+  }
+
+  const streamRequest = new google.ima.dai.api.VODStreamRequest();
+  streamRequest.contentSourceId = 'YOUR_CONTENT_SOURCE_ID';
+  streamRequest.videoId = 'YOUR_VIDEO_ID';
+  streamRequest.format = 'dash';
+  return streamRequest;
+}
 
 // <cast-media-player> keeps its <video> inside a SHADOW ROOT, so
 // document.querySelector('video') is null at EVERY point in the receiver
@@ -270,6 +290,14 @@ It subscribes to `cast.framework.events.EventType.TIMED_METADATA_CHANGED`, keeps
 Forwarding is the application's responsibility, not the library's: the tracker never calls it. It ships because the payload is nested three levels down (`timedMetadataInfo.dashTimedMetadata.eventNode.attributes.messageData`) and the usable timestamp is `timedMetadataInfo.startTime`, **not** the MPD-relative `presentationTime` — and getting either wrong forwards nothing at all, silently.
 
 > ⚠️ **HLS is not covered.** This was measured on DASH only: DAI's HLS output does not play under the Shaka build in the emulator, so CAF's HLS timed-metadata shape (`EventType.ID3` / `hlsTimedMetadata`) could not be verified. A receiver serving **live DAI over HLS** still needs that path written and tested on a real device.
+
+> **Avoiding the auto-created ads tracker entirely.** `setAdsTracker()` replaces the native `CAFAdsTracker` that `CAFTracker` creates for itself, and relies on video-core disposing it. If you know up front that the session is DAI, pass the tracker in the options instead and none is ever constructed:
+>
+> ```javascript
+> const tracker = new CAFTracker(receiverContext, { ...options, adsTracker: daiTracker });
+> ```
+>
+> This is the more robust path. It does require the DAI tracker to exist before `CAFTracker`, which means a media element — so it only works if you are not building the `StreamManager` lazily on the first LOAD.
 
 > **Important:** `setAdsTracker()` replaces the auto-created native `CAFAdsTracker`. DAI and native VMAP/VAST ad breaks are mutually exclusive per session — a given receiver session tracks either DAI ad breaks or native ad breaks, never both.
 
