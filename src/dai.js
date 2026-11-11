@@ -256,6 +256,8 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
       // Its own try/catch, because sendAdBreakEnd() below is what clears
       // video-core's isAdBreak flag. If a failed sendEnd() skipped it, the
       // flag would stay set and suppress content telemetry for the view.
+      this.closeOpenAdTransitions();
+
       if (hadAdInFlight) {
         try {
           this.sendEnd();
@@ -312,8 +314,16 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
 
   // Individual Ad Event Handlers
   onAdStarted(event) {
-    this.currentAdData = this.extractAdData(event);
-    this.adStartStreamTime = this.getStreamTimeMs();
+    // BOTH values before EITHER assignment. Assigning currentAdData first left
+    // half an ad in flight whenever the second line threw: hasAdInFlight() went
+    // true with adStartStreamTime null, so quartiles fired for an ad that never
+    // started — the exact funnel corruption hasAdInFlight() exists to stop —
+    // and getPlayhead() fell through to raw stitched stream position.
+    const adData = this.extractAdData(event);
+    const startStreamTime = this.getStreamTimeMs();
+
+    this.currentAdData = adData;
+    this.adStartStreamTime = startStreamTime;
     nrvideo.Log.debug('CAFDaiTracker: Ad started', this.currentAdData);
     // AD_BREAK_STARTED carries no break information at all, so backfill it from
     // the first ad's pod info now that one exists.
@@ -331,6 +341,40 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // without this only the session's first ad would ever report a start.
     this.sendRequest();
     this.sendStart();
+  }
+
+  /**
+   * Closes any ad-side QoE transition still open, BEFORE sendEnd() runs.
+   *
+   * This ordering is the whole point. video-core's goEnd() calls resetFlags(),
+   * which clears isSeeking, isBuffering and isPaused outright — so a transition
+   * still open when the ad ends loses its closing event entirely: the
+   * AD_SEEK_START that already reached NRDB never gets an AD_SEEK_END, ever.
+   * Routing the later close by which tracker holds the flag cannot help,
+   * because by then no tracker holds it.
+   *
+   * Measured on live: DAI seeks past the pod at break end, so an AD_SEEK_START
+   * opened inside the last ad was left unpaired. Closing here reports the seek
+   * as ending when the ad does, which is what actually happened.
+   *
+   * Each close is contained: one failing must not block the others, nor the
+   * sendEnd() that follows.
+   */
+  closeOpenAdTransitions() {
+    const closers = [
+      ['isSeeking', 'sendSeekEnd'],
+      ['isBuffering', 'sendBufferEnd'],
+      ['isPaused', 'sendResume'],
+    ];
+
+    closers.forEach(([flag, method]) => {
+      if (!this.state?.[flag]) return;
+      try {
+        this[method]();
+      } catch (error) {
+        nrvideo.Log.warn(`CAFDaiTracker: ${method}() failed closing an ad transition`, error);
+      }
+    });
   }
 
   /**
@@ -360,12 +404,14 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
 
   onAdComplete() {
     nrvideo.Log.debug('CAFDaiTracker: Ad complete');
+    this.closeOpenAdTransitions();
     this.sendEnd();
     this.clearCurrentAd();
   }
 
   onAdSkipped() {
     nrvideo.Log.debug('CAFDaiTracker: Ad skipped');
+    this.closeOpenAdTransitions();
     this.sendEnd({ skipped: true });
     this.clearCurrentAd();
   }
@@ -574,7 +620,12 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    */
   getStreamType() {
     try {
-      const live = this.contentTracker?.isLive?.();
+      // parentTracker ?? contentTracker, as onStreamError does. setAdsTracker()
+      // always wires parentTracker, while contentTracker is an optional
+      // constructor option — reading only the latter made these answer null for
+      // every integrator who omitted it, when the answer was available.
+      const content = this.parentTracker ?? this.contentTracker;
+      const live = content?.isLive?.();
       if (typeof live === 'boolean') return live ? 'live' : 'vod';
     } catch (error) {
       nrvideo.Log.warn('CAFDaiTracker: Failed to read stream type', error);
@@ -767,7 +818,8 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
   }
 
   isMuted() {
-    return this.contentTracker?.isMuted?.() ?? null;
+    const content = this.parentTracker ?? this.contentTracker;
+    return content?.isMuted?.() ?? null;
   }
 
   // The stitched stream is decoded by CAF's own player during ads, so every

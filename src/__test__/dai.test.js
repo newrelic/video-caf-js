@@ -1430,3 +1430,100 @@ describe('CAFDaiTracker — onStreamError reports both sides independently', () 
     expect(tracker.sendError).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * video-core's goEnd() calls resetFlags(), which clears isSeeking, isBuffering
+ * and isPaused outright (verified in videotrackerstate.ts). So a transition
+ * still open when an ad ends loses its close ENTIRELY — the AD_SEEK_START that
+ * already reached NRDB never gets an AD_SEEK_END.
+ *
+ * This is the real shape of the unpaired-seek defect measured on live. Routing
+ * the later close by which tracker holds the flag cannot fix it, because by
+ * then no tracker holds it: an earlier attempt at exactly that passed its
+ * verification only because the content-side counts happened to balance while
+ * the ad side was being dropped.
+ */
+describe('CAFDaiTracker — an open ad transition is closed before the ad ends', () => {
+  const order = (tracker) => {
+    const calls = [];
+    ['sendSeekEnd', 'sendBufferEnd', 'sendResume', 'sendEnd', 'sendAdBreakEnd']
+      .forEach((n) => { tracker[n] = jest.fn(() => calls.push(n)); });
+    return calls;
+  };
+
+  it('closes an open ad seek before AD_END, not after', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    tracker.state.isSeeking = true;
+
+    const calls = order(tracker);
+    sm._emit(StreamEventType.COMPLETE, {});
+
+    expect(calls).toEqual(['sendSeekEnd', 'sendEnd']);
+  });
+
+  it('closes an open ad buffer and an open ad pause too', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    tracker.state.isBuffering = true;
+    tracker.state.isPaused = true;
+
+    const calls = order(tracker);
+    sm._emit(StreamEventType.COMPLETE, {});
+
+    expect(calls).toEqual(['sendBufferEnd', 'sendResume', 'sendEnd']);
+  });
+
+  it('closes nothing when nothing is open', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+
+    const calls = order(tracker);
+    sm._emit(StreamEventType.COMPLETE, {});
+
+    expect(calls).toEqual(['sendEnd']);
+  });
+
+  it('closes an open ad seek when the BREAK ends mid-ad', () => {
+    // The measured live case: DAI seeks past the pod at break end.
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    tracker.state.isSeeking = true;
+
+    const calls = order(tracker);
+    sm._emit(StreamEventType.AD_BREAK_ENDED, {});
+
+    expect(calls[0]).toBe('sendSeekEnd');
+    expect(calls).toContain('sendAdBreakEnd');
+  });
+
+  it('a failing close does not block the ad from ending', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    tracker.state.isSeeking = true;
+    tracker.sendSeekEnd = () => { throw new Error('seek end exploded'); };
+    tracker.sendEnd = jest.fn();
+
+    expect(() => sm._emit(StreamEventType.COMPLETE, {})).not.toThrow();
+    expect(tracker.sendEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CAFDaiTracker — content-tracker reads fall back to parentTracker', () => {
+  // setAdsTracker() always wires parentTracker; contentTracker is an optional
+  // constructor option. Reading only the option made these null for every
+  // integrator who omitted it, when the answer was there all along.
+  it('reads liveness and mute state from parentTracker when no contentTracker was passed', () => {
+    const tracker = newTracker(createMockStreamManager());
+    tracker.contentTracker = null;
+    tracker.parentTracker = { isLive: () => true, isMuted: () => true };
+
+    expect(tracker.getStreamType()).toBe('live');
+    expect(tracker.isMuted()).toBe(true);
+  });
+});
