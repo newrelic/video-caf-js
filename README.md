@@ -233,8 +233,9 @@ playerManager.setMessageInterceptor(
     return requestStreamAsync(streamManager, buildStreamRequest(loadRequestData))
       .then((streamData) => {
         loadRequestData.media.contentUrl = streamData.url;
-        // The sender declared a contentType for ITS url, not the stitched one.
-        loadRequestData.media.contentType = 'application/x-mpegurl';
+        // Must match the format buildStreamRequest() asked DAI for, or CAF
+        // picks the wrong playback pipeline.
+        loadRequestData.media.contentType = 'application/dash+xml';
         return loadRequestData;
       });
   }
@@ -242,6 +243,16 @@ playerManager.setMessageInterceptor(
 
 receiverContext.start();
 ```
+
+#### Your stream request must ask for DASH
+
+`forwardDaiMetadata()` reads the DASH `EventStream`, and **IMA DAI serves HLS unless you say otherwise**, so `buildStreamRequest` has to set the format:
+
+```javascript
+streamRequest.format = 'dash';   // REQUIRED for live — see below
+```
+
+Leave it unset and you get an HLS stream whose timed metadata this library does not read: a full content lifecycle and **zero ad events**, which looks exactly like a stream that served no ads. After 20 unmatched metadata events the helper logs one warning saying so, but the stream request is where it has to be prevented.
 
 #### Live streams require `forwardDaiMetadata()`
 

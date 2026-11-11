@@ -206,3 +206,64 @@ describe('forwardDaiMetadata', () => {
     expect(pm.addEventListener).toHaveBeenCalledWith('TIMED_METADATA_CHANGED', expect.any(Function));
   });
 });
+
+/**
+ * The failure this module exists to prevent is an ABSENCE of ad events, which
+ * is indistinguishable from a stream that served no ads. An HLS stream matches
+ * nothing here, and before this detector existed the only symptom was silence —
+ * which is exactly how the shipped sample came to request HLS while the
+ * forwarder read DASH, and nothing caught it.
+ */
+describe('forwardDaiMetadata — telling "no ads" apart from "matching nothing"', () => {
+  const hlsEvent = () => ({
+    type: 'TIMED_METADATA_CHANGED',
+    timedMetadataInfo: { id: '0', startTime: 123.4, hlsTimedMetadata: { /* no dashTimedMetadata */ } },
+  });
+
+  it('warns once after enough unmatched events, naming HLS as the likely cause', () => {
+    const pm = makePlayerManager();
+    const sm = makeStreamManager();
+    forwardDaiMetadata(pm, sm);
+
+    for (let i = 0; i < 25; i += 1) pm.emit(TIMED_METADATA_CHANGED, hlsEvent());
+
+    expect(sm.processMetadata).not.toHaveBeenCalled();
+    const warnings = nrvideo.Log.warn.mock.calls
+      .map(([first]) => String(first))
+      .filter((m) => m.includes('matched no DAI payloads'));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/HLS/);
+  });
+
+  it('stays quiet while only a few events have been seen', () => {
+    // Below the threshold this is indistinguishable from stream startup.
+    const pm = makePlayerManager();
+    forwardDaiMetadata(pm, makeStreamManager());
+
+    for (let i = 0; i < 5; i += 1) pm.emit(TIMED_METADATA_CHANGED, hlsEvent());
+
+    expect(nrvideo.Log.warn).not.toHaveBeenCalled();
+  });
+
+  it('never warns once anything has matched', () => {
+    const pm = makePlayerManager();
+    const sm = makeStreamManager();
+    forwardDaiMetadata(pm, sm);
+
+    pm.emit(TIMED_METADATA_CHANGED, realEvent());
+    for (let i = 0; i < 40; i += 1) pm.emit(TIMED_METADATA_CHANGED, hlsEvent());
+
+    expect(sm.processMetadata).toHaveBeenCalledTimes(1);
+    expect(nrvideo.Log.warn).not.toHaveBeenCalled();
+  });
+
+  it('does not throw into CAF dispatch when the payload shape is unexpected', () => {
+    // extractDaiPayload walks four levels of a third-party object, so it has
+    // to sit inside the try, not outside it.
+    const pm = makePlayerManager();
+    forwardDaiMetadata(pm, makeStreamManager());
+
+    const hostile = { get timedMetadataInfo () { throw new Error('getter exploded'); } };
+    expect(() => pm.emit(TIMED_METADATA_CHANGED, hostile)).not.toThrow();
+  });
+});

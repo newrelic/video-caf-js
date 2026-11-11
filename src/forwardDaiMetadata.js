@@ -22,12 +22,25 @@ function resolveEventType () {
   // `typeof` first: optional chaining still throws a ReferenceError on an
   // identifier that was never declared, which is the case when this module is
   // loaded outside a receiver.
-  const type =
-    typeof cast === 'undefined'
-      ? undefined
-      : cast?.framework?.events?.EventType?.TIMED_METADATA_CHANGED
+  const castPresent = typeof cast !== 'undefined'
+  const type = castPresent
+    ? cast?.framework?.events?.EventType?.TIMED_METADATA_CHANGED
+    : undefined
 
-  return typeof type === 'string' && type ? type : TIMED_METADATA_CHANGED
+  if (typeof type === 'string' && type) return type
+
+  // No `cast` at all is a legitimate quiet case (unit tests, a non-receiver
+  // host). `cast` present but the constant gone is NOT: it means CAF renamed
+  // the event, and the literal below would subscribe to something that never
+  // fires — silently reporting no live ads forever.
+  if (castPresent) {
+    nrvideo.Log.warn(
+      'forwardDaiMetadata: cast.framework.events.EventType.TIMED_METADATA_CHANGED is missing. ' +
+      `Falling back to '${TIMED_METADATA_CHANGED}'; if CAF renamed it, no live ad events will be reported.`
+    )
+  }
+
+  return TIMED_METADATA_CHANGED
 }
 
 /**
@@ -92,12 +105,18 @@ function extractDaiPayload (event) {
  * tracker never calls this and does not depend on it. It ships because the
  * payload shape above is easy to get wrong and SILENTLY wrong.
  *
- * **HLS is not covered.** CAF exposes `EventType.ID3` and an `hlsTimedMetadata`
- * sibling for HLS streams, but neither could be measured here: DAI's HLS output
- * does not play under Shaka 4.15.56, so the whole CAF lane was exercised on
- * DASH. Rather than guess at a payload shape, this helper handles the measured
- * DASH path only and warns when it sees nothing. A receiver serving live DAI
- * **HLS** still needs that arm written against a real device.
+ * **HLS is not covered, so the stream request must ask for DASH.** CAF exposes
+ * `EventType.ID3` and an `hlsTimedMetadata` sibling for HLS streams, but
+ * neither could be measured: DAI's HLS output does not play under Shaka
+ * 4.15.56, so the whole CAF lane was exercised on DASH. Rather than guess at a
+ * payload shape, this handles the measured DASH path only.
+ *
+ * That makes `streamRequest.format = 'dash'` a REQUIREMENT for live, not a
+ * preference — IMA DAI defaults to HLS, and an HLS stream matches nothing
+ * here. After seeing `NO_MATCH_THRESHOLD` timed-metadata events with no DAI
+ * match, this logs one warning saying so, because the symptom otherwise is
+ * simply an absence of ad events. A receiver serving live DAI **HLS** needs
+ * the ID3 arm written against a real device.
  *
  * @param {object} playerManager A cast.framework.player.PlayerManager.
  * @param {object} streamManager A google.ima.dai.api.StreamManager.
@@ -122,20 +141,47 @@ export default function forwardDaiMetadata (playerManager, streamManager) {
 
   const eventType = resolveEventType()
 
-  const handler = (event) => {
-    const payload = extractDaiPayload(event)
-    if (!payload) return
+  // Without these counters, three very different states are one indistinguishable
+  // silence: "the stream signalled no ads", "this stream is HLS so nothing ever
+  // matches", and "CAF moved the payload and every match now fails". All three
+  // look like a stream that served no ads, which is the exact condition this
+  // module exists to prevent being invisible.
+  let seen = 0
+  let forwarded = 0
+  let warnedNoMatch = false
 
+  // Enough events to be past stream startup without waiting for a break. The
+  // live asset emits roughly one per second.
+  const NO_MATCH_THRESHOLD = 20
+
+  const handler = (event) => {
+    seen += 1
+
+    // The extract is INSIDE the try: it walks four levels of a third-party
+    // payload, and this runs inside CAF's event dispatch, where an escaping
+    // exception reaches the player and can abort playback outright.
     try {
-      streamManager.processMetadata(
-        DAI_SCHEME_ID_URI,
-        payload.messageData,
-        payload.timestamp
-      )
+      const payload = extractDaiPayload(event)
+
+      if (payload) {
+        forwarded += 1
+        streamManager.processMetadata(
+          DAI_SCHEME_ID_URI,
+          payload.messageData,
+          payload.timestamp
+        )
+        return
+      }
+
+      if (!warnedNoMatch && forwarded === 0 && seen >= NO_MATCH_THRESHOLD) {
+        warnedNoMatch = true
+        nrvideo.Log.warn(
+          `forwardDaiMetadata: saw ${seen} timed-metadata events and matched no DAI payloads, ` +
+          'so no live ad events will be reported. The likeliest cause is an HLS stream — this ' +
+          'helper handles the DASH EventStream only — or a change to CAF\'s payload shape.'
+        )
+      }
     } catch (error) {
-      // This runs inside CAF's event dispatch, so it must not throw into the
-      // receiver: an exception here would reach the player and can abort
-      // playback outright.
       nrvideo.Log.warn('forwardDaiMetadata: processMetadata failed', error)
     }
   }

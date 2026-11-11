@@ -883,10 +883,16 @@ describe('CAFDaiTracker — cue points, getters, bitrate', () => {
     expect(tracker.getAdPartner()).toBe('google-dai');
   });
 
-  it('getPlayhead() reports 0 rather than throwing without a playerManager', () => {
+  // Deliberately changed from 0 to null. The original intent was "does not
+  // throw", and that still holds — but 0 is a REAL stream position, so
+  // reporting it for a playhead nobody could read made an absent measurement
+  // indistinguishable from the start of a stream, and dashboards average it in.
+  // null means "not measured", which is what actually happened.
+  it('getPlayhead() reports no measurement rather than throwing without a playerManager', () => {
     const sm = createMockStreamManager();
     const tracker = new CAFDaiTracker(sm, {});
-    expect(tracker.getPlayhead()).toBe(0);
+    expect(() => tracker.getPlayhead()).not.toThrow();
+    expect(tracker.getPlayhead()).toBeNull();
   });
 
   // Derived from the content tracker's isLive(), as the hls.js and dash.js DAI
@@ -1297,5 +1303,130 @@ describe("CAFDaiTracker — against video-core's real event gating", () => {
     const starts = reported.filter((e) => e === 'AD_START').length;
     const quartiles = reported.filter((e) => e.startsWith('AD_QUARTILE')).length;
     expect(quartiles).toBe(starts);
+  });
+});
+
+/**
+ * These pin the state-ordering fixes. The pre-existing throw tests in this file
+ * all throw from a handler's LAST statement, so they pass whether or not the
+ * clears run before the sends — see the "swallows and logs an exception from
+ * any handler" test, which throws from sendDownload, the last line of
+ * onStreamInitialized. The comment "state is updated before the send" is true
+ * of onAdBreakStarted and was false of onAdBreakEnded and onStreamInitialized,
+ * which is precisely what these cover.
+ *
+ * Why it matters: guard() catches at the handler boundary, so a send-then-clear
+ * left adBreakData set. isAdPlaying() returns true for as long as it is, which
+ * makes CAFTracker suppress EVERY content event for the rest of the view. The
+ * resulting shape — CONTENT_REQUEST, CONTENT_END, no CONTENT_START, zero
+ * playtime — reads as exit-before-video-start, so the fault mis-signalled as a
+ * different and alertable one.
+ */
+describe('CAFDaiTracker — a throw during teardown must not strand the break open', () => {
+  it('clears the break when sendAdBreakEnd() throws', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+    expect(tracker.getCurrentAdBreak()).not.toBeNull();
+
+    tracker.sendAdBreakEnd = () => { throw new Error('attribute collection exploded'); };
+
+    expect(() => sm._emit(StreamEventType.AD_BREAK_ENDED, {})).not.toThrow();
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+    expect(tracker.isAdPlaying()).toBe(false);
+    expect(tracker.hasAdInFlight()).toBe(false);
+  });
+
+  it('still ends the break when sendEnd() throws closing an in-flight ad', () => {
+    // sendAdBreakEnd is what clears video-core's own isAdBreak flag, so a
+    // failed sendEnd must not skip it.
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+
+    tracker.sendEnd = () => { throw new Error('ad end exploded'); };
+    tracker.sendAdBreakEnd = jest.fn();
+
+    expect(() => sm._emit(StreamEventType.AD_BREAK_ENDED, {})).not.toThrow();
+    expect(tracker.sendAdBreakEnd).toHaveBeenCalledTimes(1);
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+    expect(tracker.isAdPlaying()).toBe(false);
+  });
+
+  it('does not carry a previous stream\'s open break into a new stream', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+
+    // Throws while closing the old break during STREAM_INITIALIZED.
+    tracker.sendAdBreakEnd = () => { throw new Error('boom'); };
+
+    expect(() => sm._emit(StreamEventType.STREAM_INITIALIZED, {})).not.toThrow();
+    expect(tracker.getCurrentAdBreak()).toBeNull();
+    expect(tracker.isAdPlaying()).toBe(false);
+    expect(tracker.cuePoints).toEqual([]);
+  });
+});
+
+describe('CAFDaiTracker — an unreadable receiver clock', () => {
+  const throwingPm = () => ({
+    getCurrentTimeSec: () => { throw 'You must first call initialize() and set a valid source'; },
+    getDurationSec: () => 600,
+    getStats: () => ({}),
+  });
+
+  it('reports no playhead rather than 0 when the clock throws', () => {
+    // 0 is a real stream position and would be averaged into dashboards as if
+    // measured. Optional chaining did not cover a THROWING method, and this
+    // call sits on every ad event's attribute path.
+    const tracker = newTracker(createMockStreamManager(), { playerManager: throwingPm() });
+
+    expect(() => tracker.getStreamTimeMs()).not.toThrow();
+    expect(Number.isNaN(tracker.getStreamTimeMs())).toBe(true);
+    expect(tracker.getPlayhead()).toBeNull();
+  });
+
+  it('does not claim an ad is playing when it cannot read the clock', () => {
+    const tracker = newTracker(createMockStreamManager(), { playerManager: throwingPm() });
+    tracker.cuePoints = [{ start: 0, end: 10, played: false }];
+
+    expect(tracker.isAdPlaying()).toBe(false);
+  });
+
+  it('lets an ad event through instead of throwing into the SDK', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm, { playerManager: throwingPm() });
+
+    expect(() => startAd(sm)).not.toThrow();
+  });
+});
+
+describe('CAFDaiTracker — onStreamError reports both sides independently', () => {
+  it('still reports the content error when the ad-side send throws', () => {
+    // The content error is the one that carries hadStartupError, so it is the
+    // one that must survive. Previously the ad send ran first and unguarded,
+    // so its throw was caught at the handler boundary and BOTH were lost.
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+
+    const contentTracker = { sendError: jest.fn() };
+    tracker.parentTracker = contentTracker;
+    tracker.sendError = () => { throw new Error('ad error send exploded'); };
+
+    expect(() => sm._emit(StreamEventType.ERROR, {})).not.toThrow();
+    expect(contentTracker.sendError).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports the ad error when the content-side send throws', () => {
+    const sm = createMockStreamManager();
+    const tracker = newTracker(sm);
+    startAd(sm);
+
+    tracker.parentTracker = { sendError: () => { throw new Error('content send exploded'); } };
+    tracker.sendError = jest.fn();
+
+    expect(() => sm._emit(StreamEventType.ERROR, {})).not.toThrow();
+    expect(tracker.sendError).toHaveBeenCalledTimes(1);
   });
 });

@@ -138,13 +138,19 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // forget it: only sendAdBreakEnd() clears video-core's own isAdBreak flag,
     // so dropping adBreakData alone would leave the flag — and the break's
     // playtime accounting — stuck open for the rest of the session.
-    if (this.adBreakData) this.onAdBreakEnded();
-
-    this.clearCurrentAd();
-    this.adBreakData = null;
-    this.adBreakFromPeriod = false;
-    this.cuePoints = [];
-    this.streamData = null;
+    try {
+      if (this.adBreakData) this.onAdBreakEnded();
+    } finally {
+      // Same hazard as onAdBreakEnded, one level up: a throw inside the break
+      // close used to skip these clears and carry the PREVIOUS stream's open
+      // break and cue points into the new one, suppressing all content
+      // telemetry for a stream that is playing perfectly well.
+      this.clearCurrentAd();
+      this.adBreakData = null;
+      this.adBreakFromPeriod = false;
+      this.cuePoints = [];
+      this.streamData = null;
+    }
 
     this.sendDownload({ state: 'stream-initialized' });
   }
@@ -169,13 +175,31 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
     // adPosition and adPlayhead — the same rule that keeps adBreakData out of
     // adBreakAttributes(), applied to a payload shared across two trackers
     // rather than to internal state.
-    if (this.adBreakData) this.sendError({ ...errorData });
+    // Each report is independently contained. Previously the ad-side send ran
+    // first and unguarded, so one throw in it — reaching getPlayhead() while
+    // the receiver is IDLE, exactly the state a failed stream request leaves —
+    // was caught at the handler boundary and the content error never ran. NRDB
+    // then recorded NEITHER error for a stream that never played, defeating
+    // the startup-failure analysis this method exists to feed.
+    const report = (tracker, label) => {
+      try {
+        tracker.sendError({ ...errorData });
+      } catch (error) {
+        nrvideo.Log.warn(`CAFDaiTracker: ${label} sendError() failed`, error);
+      }
+    };
 
-    if (contentTracker?.sendError) {
-      contentTracker.sendError({ ...errorData });
-    } else if (!this.adBreakData) {
+    const hasContentTracker = typeof contentTracker?.sendError === 'function';
+
+    // Content FIRST: it is the report that carries hadStartupError, so it is
+    // the one that must survive if only one can.
+    if (hasContentTracker) report(contentTracker, 'content');
+
+    if (this.adBreakData) {
+      report(this, 'ad');
+    } else if (!hasContentTracker) {
       // Nothing else to report on — better an ad error than a lost error.
-      this.sendError({ ...errorData });
+      report(this, 'ad (no content tracker)');
     }
   }
 
@@ -216,21 +240,48 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
 
   onAdBreakEnded() {
     nrvideo.Log.debug('CAFDaiTracker: Ad break ended');
-    // An ad still in flight has to be ended first. video-core's goAdBreakEnd()
-    // clears isRequested but not isStarted, and only sendEnd() resets that, so
-    // leaving a started ad unfinished here blocks AD_START for every later ad
-    // in the session. Happens whenever a break ends mid-ad: a seek out of a
-    // mid-roll, an ad error, a source switch.
-    if (this.currentAdData) {
-      this.sendEnd();
-      this.clearCurrentAd();
-    }
 
-    // Attributes go out here rather than at AD_BREAK_STARTED: the break's
-    // details are only known once its first ad has been seen (see onAdStarted).
-    this.sendAdBreakEnd(this.adBreakAttributes());
-    this.adBreakData = null;
-    this.adBreakFromPeriod = false;
+    // Snapshot the attributes and the in-flight flag BEFORE any send, so the
+    // clears below cannot depend on state a throw might have left behind.
+    const attributes = this.adBreakAttributes();
+    const hadAdInFlight = this.currentAdData != null;
+
+    try {
+      // An ad still in flight has to be ended first. video-core's
+      // goAdBreakEnd() clears isRequested but not isStarted, and only
+      // sendEnd() resets that, so leaving a started ad unfinished here blocks
+      // AD_START for every later ad in the session. Happens whenever a break
+      // ends mid-ad: a seek out of a mid-roll, an ad error, a source switch.
+      //
+      // Its own try/catch, because sendAdBreakEnd() below is what clears
+      // video-core's isAdBreak flag. If a failed sendEnd() skipped it, the
+      // flag would stay set and suppress content telemetry for the view.
+      if (hadAdInFlight) {
+        try {
+          this.sendEnd();
+        } catch (error) {
+          nrvideo.Log.warn('CAFDaiTracker: sendEnd() failed closing a break', error);
+        }
+      }
+
+      // Attributes go out here rather than at AD_BREAK_STARTED: the break's
+      // details are only known once its first ad has been seen (onAdStarted).
+      this.sendAdBreakEnd(attributes);
+    } finally {
+      // ALWAYS clear, even if a send threw. guard() catches at the handler
+      // boundary, so a plain send-then-clear left adBreakData set — and
+      // isAdPlaying() returns true for as long as it is, which makes
+      // CAFTracker suppress every content event for the rest of the view.
+      // The resulting shape (CONTENT_REQUEST, CONTENT_END, totalPlaytime 0, no
+      // CONTENT_START) reads as exit-before-video-start, so the fault did not
+      // merely hide, it mis-signalled as a different and alertable one.
+      //
+      // video-core does the same thing: goAdBreakEnd() flips its flag before
+      // dispatching, so the flag clears even if attribute collection throws.
+      this.clearCurrentAd();
+      this.adBreakData = null;
+      this.adBreakFromPeriod = false;
+    }
   }
 
   // Ad Period Event Handlers (for bumpers, etc.)
@@ -603,7 +654,10 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    */
   getPlayhead() {
     const streamTime = this.getStreamTimeMs();
-    if (this.adStartStreamTime == null) return streamTime;
+    // null, not NaN or 0: an unreadable clock is an absent measurement, and
+    // NaN would serialise into the event as a number-shaped non-number.
+    if (!Number.isFinite(streamTime)) return null;
+    if (!Number.isFinite(this.adStartStreamTime)) return streamTime;
     return Math.max(0, streamTime - this.adStartStreamTime);
   }
 
@@ -615,7 +669,23 @@ export default class CAFDaiTracker extends nrvideo.VideoTracker {
    * getPlayhead(), which is ad-relative while an ad is on screen.
    */
   getStreamTimeMs() {
-    return (this.playerManager?.getCurrentTimeSec?.() ?? 0) * 1000;
+    // Optional chaining covers a missing playerManager or a missing method. It
+    // does NOTHING for a method that THROWS — and throwing when the receiver
+    // has nothing loaded is the whole premise of CAFTracker.readFromPlayer().
+    // Left bare, this detonated three separate handlers: video-core reads
+    // att.adPlayhead = getPlayhead() on every VideoAdAction, so one throw here
+    // turned every ad-side send into a throw.
+    //
+    // NaN rather than 0 on failure: 0 is a real stream position and would be
+    // averaged into dashboards as though it had been measured. Every consumer
+    // gates on Number.isFinite.
+    try {
+      const seconds = this.playerManager?.getCurrentTimeSec?.();
+      return typeof seconds === 'number' ? seconds * 1000 : NaN;
+    } catch (error) {
+      nrvideo.Log.debug('CAFDaiTracker: getCurrentTimeSec() threw', error);
+      return NaN;
+    }
   }
 
   /**

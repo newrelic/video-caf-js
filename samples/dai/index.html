@@ -51,9 +51,12 @@
     // onStreamInitialized).
     let streamManager;
     let daiTracker;
-    const VOD_CMS_ID = "2548831";
-    const VOD_VIDEO_ID = "tears-of-steel";
-    const LIVE_ASSET_KEY = "sN_IYUG8STe1ZzhIIE_ksA";
+    // DASH assets. forwardDaiMetadata() handles the DASH EventStream only, so
+    // DASH is the configuration this library supports for live — see below.
+    // Google's HLS test assets have no DASH variant, hence different ids.
+    const VOD_CMS_ID = "2559737";
+    const VOD_VIDEO_ID = "tos-dash";
+    const LIVE_ASSET_KEY = "PSzZMzAkSXCmlJOWDmRj8Q";
 
     // This sample picks VOD vs Live off media.customData.streamType, set by the
     // Cast sender app issuing the LOAD request (defaults to VOD if unset).
@@ -63,12 +66,17 @@
         if (isLive) {
             const streamRequest = new google.ima.dai.api.LiveStreamRequest();
             streamRequest.assetKey = LIVE_ASSET_KEY;
+            // REQUIRED, not a preference. IMA DAI serves HLS by default, and
+            // forwardDaiMetadata() reads the DASH EventStream — an HLS stream
+            // matches nothing and reports ZERO live ad events.
+            streamRequest.format = 'dash';
             return streamRequest;
         }
 
         const streamRequest = new google.ima.dai.api.VODStreamRequest();
         streamRequest.contentSourceId = VOD_CMS_ID;
         streamRequest.videoId = VOD_VIDEO_ID;
+        streamRequest.format = 'dash';
         return streamRequest;
     }
 
@@ -131,10 +139,10 @@
 
         return requestStreamAsync(buildStreamRequest(loadRequestData)).then(streamData => {
             loadRequestData.media.contentUrl = streamData.url;
-            // The sender declared a contentType for ITS url, not for the
-            // stitched one. DAI serves HLS unless streamRequest.format is set
-            // to 'dash', so correct it here or CAF may pick the wrong pipeline.
-            loadRequestData.media.contentType = 'application/x-mpegurl';
+            // The sender declared a contentType for ITS url, not the
+            // stitched one. buildStreamRequest() asks DAI for DASH, so this
+            // must match or CAF picks the wrong playback pipeline.
+            loadRequestData.media.contentType = 'application/dash+xml';
             return loadRequestData;
         }).catch(error => {
             // Returning loadRequestData unchanged lets CAF try the sender's
