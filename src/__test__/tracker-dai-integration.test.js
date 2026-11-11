@@ -788,3 +788,35 @@ describe('listener removal actually removes the registered functions', () => {
     expect(() => tracker.unregisterListeners()).not.toThrow();
   });
 });
+
+/**
+ * isAdsTrackerActive() and closingTracker() duck-type a foreign ads tracker,
+ * but two call sites assumed OUR interface. Both run inside CAF's event
+ * dispatch, where a TypeError does not merely lose an event.
+ */
+describe('a third-party ads tracker cannot break CAF dispatch', () => {
+  const foreign = () => ({
+    // Satisfies isAdsTrackerActive() via the getCurrentAdBreak arm, and
+    // deliberately implements neither onBitrateChanged nor a safe converter.
+    getCurrentAdBreak: () => ({ id: 'b1' }),
+    state: { isAdBreak: true },
+  });
+
+  it('survives BITRATE_CHANGED when the ads tracker has no onBitrateChanged', () => {
+    const tracker = new CAFTracker(createMockReceiverContext(createMockPlayerManager()), { info: {} });
+    tracker.adsTracker = foreign();
+
+    expect(() => tracker.onBitrateChanged({ totalBitrate: 512000 })).not.toThrow();
+  });
+
+  it('falls back to stream time when a foreign time converter throws', () => {
+    const tracker = new CAFTracker(createMockReceiverContext(createMockPlayerManager()), { info: {} });
+    tracker.adsTracker = {
+      ...foreign(),
+      contentTimeForStreamTime: () => { throw new Error('converter exploded'); },
+    };
+
+    expect(tracker.toContentTime(42)).toBe(42);
+    expect(() => tracker.getDuration()).not.toThrow();
+  });
+});

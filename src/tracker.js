@@ -226,7 +226,16 @@ export default class CAFTracker extends nrvideo.VideoTracker {
    * would add a branch for no measured gain and diverge from the siblings.
    */
   toContentTime (streamTime) {
-    const converted = this.adsTracker?.contentTimeForStreamTime?.(streamTime)
+    // CAFDaiTracker contains its own SDK call, but this reaches an ads tracker
+    // we do not own, from inside attribute collection — which itself runs
+    // inside CAF's event dispatch. A throwing third-party converter must not
+    // become a throwing content getter.
+    let converted
+    try {
+      converted = this.adsTracker?.contentTimeForStreamTime?.(streamTime)
+    } catch (e) {
+      return streamTime
+    }
     return typeof converted === 'number' && Number.isFinite(converted)
       ? converted
       : streamTime
@@ -466,7 +475,12 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this._currentBitrate = ev.totalBitrate
     if (!this.isAdsTrackerActive()) {
       this.sendRenditionChanged()
-    } else {
+    } else if (typeof this.adsTracker.onBitrateChanged === 'function') {
+      // onBitrateChanged is OURS, not part of video-core's ads-tracker
+      // contract, while isAdsTrackerActive() and closingTracker() above both
+      // duck-type foreign ads trackers. A third-party tracker that satisfies
+      // those arms without this method used to throw a TypeError straight into
+      // CAF's BITRATE_CHANGED dispatch.
       this.adsTracker.onBitrateChanged(ev)
     }
   }
