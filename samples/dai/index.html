@@ -1,0 +1,160 @@
+<html>
+<head>
+
+    <!-- Chromecast Device Emulator polyfill (local testing only — remove for production) -->
+    <script src="https://unpkg.com/chromecast-device-emulator/dist/receiver-utils.min.js"></script>
+
+    <!-- New Relic Video -->
+    <script src="../../dist/umd/newrelic-video-caf.min.js"></script>
+
+    <!-- CAF Receiver SDK -->
+    <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+    <!-- Google IMA DAI SDK — must be loaded globally before constructing CAFTracker.CAFDaiTracker -->
+    <script src="https://imasdk.googleapis.com/js/sdkloader/ima3_dai.js"></script>
+</head>
+<body>
+    <cast-media-player></cast-media-player>
+    <script>
+
+    let receiverContext = cast.framework.CastReceiverContext.getInstance();
+    let playerManager = receiverContext.getPlayerManager();
+
+    // Retrieve these credentials by following the Streaming Video & Ads onboarding steps in New Relic Browser (one.newrelic.com)
+    const options = {
+        info: {
+            licenseKey:    "YOUR_LICENSE_KEY",
+            beacon:        "YOUR_BEACON_URL",
+            applicationID: "YOUR_APP_ID"
+        }
+    };
+
+    const tracker = new CAFTracker(receiverContext, options);
+
+    // <cast-media-player> keeps its <video> inside a SHADOW ROOT, so
+    // document.querySelector('video') is null at every point in the receiver
+    // lifecycle — not just before start(). Reach through the shadow root
+    // instead, or `new google.ima.dai.api.StreamManager(null)` throws
+    // "Media element must be provided." Measured against the Chromecast
+    // Device Emulator with CAF 3.0.0157.
+    function getMediaElement() {
+        const player = document.querySelector('cast-media-player');
+        const element = player && player.shadowRoot
+            && player.shadowRoot.querySelector('video');
+        if (!element) throw new Error('No <video> inside <cast-media-player>');
+        return element;
+    }
+
+    // StreamManager/CAFDaiTracker are constructed lazily on the first LOAD and
+    // reused for every later LOAD in the session — DAI event handling already
+    // assumes a long-lived tracker across stream changes (see src/dai.js's
+    // onStreamInitialized).
+    let streamManager;
+    let daiTracker;
+    // DASH assets. forwardDaiMetadata() handles the DASH EventStream only, so
+    // DASH is the configuration this library supports for live — see below.
+    // Google's HLS test assets have no DASH variant, hence different ids.
+    const VOD_CMS_ID = "2559737";
+    const VOD_VIDEO_ID = "tos-dash";
+    const LIVE_ASSET_KEY = "PSzZMzAkSXCmlJOWDmRj8Q";
+
+    // This sample picks VOD vs Live off media.customData.streamType, set by the
+    // Cast sender app issuing the LOAD request (defaults to VOD if unset).
+    function buildStreamRequest(loadRequestData) {
+        const isLive = loadRequestData.media?.customData?.streamType === 'live';
+
+        if (isLive) {
+            const streamRequest = new google.ima.dai.api.LiveStreamRequest();
+            streamRequest.assetKey = LIVE_ASSET_KEY;
+            // REQUIRED, not a preference. IMA DAI serves HLS by default, and
+            // forwardDaiMetadata() reads the DASH EventStream — an HLS stream
+            // matches nothing and reports ZERO live ad events.
+            streamRequest.format = 'dash';
+            return streamRequest;
+        }
+
+        const streamRequest = new google.ima.dai.api.VODStreamRequest();
+        streamRequest.contentSourceId = VOD_CMS_ID;
+        streamRequest.videoId = VOD_VIDEO_ID;
+        streamRequest.format = 'dash';
+        return streamRequest;
+    }
+
+    // google.ima.dai.api.StreamManager.requestStream() returns VOID, not a
+    // promise: the stitched stream arrives on StreamEvent.Type.LOADED and a
+    // failed request arrives on StreamEvent.Type.ERROR. Wrap both into the
+    // promise that CAF's LOAD interceptor expects. The listeners are removed
+    // on settle so repeat LOADs on this long-lived StreamManager do not stack
+    // up — and so they never outlive the request that added them.
+    function requestStreamAsync(streamRequest, timeoutMs = 15000) {
+        const StreamEvent = google.ima.dai.api.StreamEvent.Type;
+        return new Promise((resolve, reject) => {
+            let timer;
+            const settle = (fn) => (arg) => {
+                clearTimeout(timer);
+                streamManager.removeEventListener(StreamEvent.LOADED, onLoaded);
+                streamManager.removeEventListener(StreamEvent.ERROR, onError);
+                fn(arg);
+            };
+            const onLoaded = (event) => settle(resolve)(event.getStreamData());
+            const onError = () => settle(reject)(new Error('DAI stream request failed'));
+            // Never leave the interceptor's promise unsettled: CAF would wait
+            // on it forever and the receiver would hang with no media.
+            timer = setTimeout(
+                () => settle(reject)(new Error(`DAI stream request timed out after ${timeoutMs}ms`)),
+                timeoutMs
+            );
+            streamManager.addEventListener(StreamEvent.LOADED, onLoaded);
+            streamManager.addEventListener(StreamEvent.ERROR, onError);
+            streamManager.requestStream(streamRequest);
+        });
+    }
+
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, loadRequestData => {
+        console.log("Intercepting LOAD request for DAI stream stitching");
+
+        if (!daiTracker) {
+            streamManager = new google.ima.dai.api.StreamManager(getMediaElement());
+
+            // The UMD bundle exposes only CAFTracker as a global; the DAI
+            // tracker hangs off it as a static.
+            daiTracker = new CAFTracker.CAFDaiTracker(streamManager, {
+                playerManager: playerManager,
+                contentTracker: tracker      // lets ad events report mute state
+            });
+
+            // Replaces the auto-created native CAFAdsTracker — DAI and native
+            // VMAP/VAST ad breaks are mutually exclusive per session, so only
+            // call this if the content being loaded actually uses DAI stitching.
+            tracker.setAdsTracker(daiTracker);
+
+            // REQUIRED FOR LIVE. The IMA DAI SDK learns about live ad breaks
+            // only from the stream's own timed metadata, and nothing forwards
+            // it automatically: without this line a live stream reports a full
+            // content lifecycle and ZERO ad events, which looks exactly like a
+            // stream that served no ads. Harmless on VOD, where cue points
+            // carry the breaks, so it is registered unconditionally.
+            CAFTracker.forwardDaiMetadata(playerManager, streamManager);
+        }
+
+        return requestStreamAsync(buildStreamRequest(loadRequestData)).then(streamData => {
+            loadRequestData.media.contentUrl = streamData.url;
+            // The sender declared a contentType for ITS url, not the
+            // stitched one. buildStreamRequest() asks DAI for DASH, so this
+            // must match or CAF picks the wrong playback pipeline.
+            loadRequestData.media.contentType = 'application/dash+xml';
+            return loadRequestData;
+        }).catch(error => {
+            // Returning loadRequestData unchanged lets CAF try the sender's
+            // original url, so a DAI outage degrades to unstitched content
+            // rather than a dead receiver.
+            console.error("DAI requestStream failed", error);
+            return loadRequestData;
+        });
+    });
+
+    receiverContext.start();
+
+    </script>
+</body>
+</html>
