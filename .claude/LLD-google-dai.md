@@ -234,11 +234,11 @@ DAI SDK's own event surface, not CAF-specific:
 | `AD_PERIOD_STARTED`        | `onAdPeriodStarted`    | if no current break: set `adBreakFromPeriod` and delegate to `onAdBreakStarted` |
 | `AD_PERIOD_ENDED`          | `onAdPeriodEnded`      | if `adBreakFromPeriod`: delegate to `onAdBreakEnded`; otherwise no-op (an SDK-announced break may have more ads) |
 | `STARTED`                  | `onAdStarted`          | `extractAdData()`, capture `adStartStreamTime`, backfill break data, then `sendRequest()` **and** `sendStart()` |
-| `FIRST_QUARTILE`           | `onAdFirstQuartile`    | `sendAdQuartile({ quartile: 1 })` if an ad is in flight |
-| `MIDPOINT`                 | `onAdMidpoint`         | `sendAdQuartile({ quartile: 2 })` if an ad is in flight |
-| `THIRD_QUARTILE`           | `onAdThirdQuartile`    | `sendAdQuartile({ quartile: 3 })` if an ad is in flight |
+| `FIRST_QUARTILE`           | `onAdFirstQuartile`    | `sendAdQuartile({ adQuartile: 1 })` if an ad is in flight |
+| `MIDPOINT`                 | `onAdMidpoint`         | `sendAdQuartile({ adQuartile: 2 })` if an ad is in flight |
+| `THIRD_QUARTILE`           | `onAdThirdQuartile`    | `sendAdQuartile({ adQuartile: 3 })` if an ad is in flight |
 | `COMPLETE`                 | `onAdComplete`         | `sendEnd()`, `clearCurrentAd()`              |
-| `SKIPPED`                  | `onAdSkipped`          | `sendEnd({ skipped: true })`, `clearCurrentAd()` |
+| `SKIPPED`                  | `onAdSkipped`          | `sendEnd({ adSkipped: 1 })`, `clearCurrentAd()` |
 | `PAUSED`                   | `onAdPaused`           | `sendPause()`                                |
 | `RESUMED`                  | `onAdResumed`          | `sendResume()`                               |
 | `CLICK` / `VIDEO_CLICKED`  | `onAdClicked`          | if an ad is in flight: `sendAdClick({ url })`, url key omitted when unknown |
@@ -704,9 +704,9 @@ Test groups (one `it` per §2.2 table row, minimum):
    object whose optional accessors all throw; position from pod index
    (0/-1/other/absent) and stable as the stream clock advances; `adCount` from
    the pod, `undefined` when unavailable; each quartile →
-   `sendAdQuartile({ quartile: N })`, and none at all for an ad that never
+   `sendAdQuartile({ adQuartile: N })`, and none at all for an ad that never
    started or one that already completed; `COMPLETE` → `sendEnd()` + cleared
-   `currentAdData`; `SKIPPED` → `sendEnd({ skipped: true })`;
+   `currentAdData`; `SKIPPED` → `sendEnd({ adSkipped: 1 })`;
    `PAUSED`/`RESUMED`; `CLICK`/`VIDEO_CLICKED` omit the url key the SDK cannot
    supply and carry one if a future SDK does; `sendRequest()` fires once per ad
    rather than once per stream; an ad in flight is ended by its break ending,

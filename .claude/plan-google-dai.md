@@ -419,13 +419,13 @@ describe('CAFDaiTracker — ad playback events', () => {
     [StreamEventType.FIRST_QUARTILE, 1],
     [StreamEventType.MIDPOINT, 2],
     [StreamEventType.THIRD_QUARTILE, 3],
-  ])('%s calls sendAdQuartile({ quartile: %i })', (type, quartile) => {
+  ])('%s calls sendAdQuartile({ adQuartile: %i })', (type, adQuartile) => {
     const sm = createMockStreamManager();
     const tracker = new CAFDaiTracker(sm, { playerManager: createMockPlayerManager() });
     jest.spyOn(tracker, 'sendAdQuartile');
     startAd(tracker, sm);
     sm._emit(type, {});
-    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ quartile });
+    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ adQuartile });
   });
 
   it('COMPLETE calls sendEnd() and clears the current ad', () => {
@@ -438,13 +438,13 @@ describe('CAFDaiTracker — ad playback events', () => {
     expect(tracker.getCurrentAd()).toBeNull();
   });
 
-  it('SKIPPED calls sendEnd({ skipped: true }) and clears the current ad', () => {
+  it('SKIPPED calls sendEnd({ adSkipped: 1 }) and clears the current ad', () => {
     const sm = createMockStreamManager();
     const tracker = new CAFDaiTracker(sm, { playerManager: createMockPlayerManager() });
     startAd(tracker, sm);
     jest.spyOn(tracker, 'sendEnd');
     sm._emit(StreamEventType.SKIPPED, {});
-    expect(tracker.sendEnd).toHaveBeenCalledWith({ skipped: true });
+    expect(tracker.sendEnd).toHaveBeenCalledWith({ adSkipped: 1 });
     expect(tracker.getCurrentAd()).toBeNull();
   });
 

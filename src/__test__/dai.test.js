@@ -643,13 +643,13 @@ describe('CAFDaiTracker — ad playback events', () => {
     [StreamEventType.FIRST_QUARTILE, 1],
     [StreamEventType.MIDPOINT, 2],
     [StreamEventType.THIRD_QUARTILE, 3],
-  ])('%s calls sendAdQuartile({ quartile: %i })', (type, quartile) => {
+  ])('%s calls sendAdQuartile({ adQuartile: %i })', (type, adQuartile) => {
     const sm = createMockStreamManager();
     const tracker = newTracker(sm);
     jest.spyOn(tracker, 'sendAdQuartile');
     startAd(sm);
     sm._emit(type, {});
-    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ quartile });
+    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ adQuartile });
   });
 
   // Joining a live stream mid-break, the SDK reports quartiles for an ad whose
@@ -683,13 +683,13 @@ describe('CAFDaiTracker — ad playback events', () => {
     expect(tracker.getCurrentAd()).toBeNull();
   });
 
-  it('SKIPPED calls sendEnd({ skipped: true }) and clears the current ad', () => {
+  it('SKIPPED calls sendEnd({ adSkipped: 1 }) and clears the current ad', () => {
     const sm = createMockStreamManager();
     const tracker = newTracker(sm);
     startAd(sm);
     jest.spyOn(tracker, 'sendEnd');
     sm._emit(StreamEventType.SKIPPED, {});
-    expect(tracker.sendEnd).toHaveBeenCalledWith({ skipped: true });
+    expect(tracker.sendEnd).toHaveBeenCalledWith({ adSkipped: 1 });
     expect(tracker.getCurrentAd()).toBeNull();
   });
 
@@ -1190,7 +1190,7 @@ describe('CAFDaiTracker — never throws into the SDK dispatch', () => {
     tracker.sendAdQuartile = jest.fn();
     sm._emit(StreamEventType.STARTED, { getAd: () => makeAd() });
     sm._emit(StreamEventType.FIRST_QUARTILE, {});
-    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ quartile: 1 });
+    expect(tracker.sendAdQuartile).toHaveBeenCalledWith({ adQuartile: 1 });
   });
 
   // The wrapper has to be stored, not recomputed: the StreamManager removes by
@@ -1242,7 +1242,7 @@ describe("CAFDaiTracker — against video-core's real event gating", () => {
       state.isRequested = false;
       reported.push('AD_BREAK_END');
     };
-    tracker.sendAdQuartile = ({ quartile }) => reported.push(`AD_QUARTILE${quartile}`);
+    tracker.sendAdQuartile = ({ adQuartile }) => reported.push(`AD_QUARTILE${adQuartile}`);
 
     return { sm, tracker, reported };
   }

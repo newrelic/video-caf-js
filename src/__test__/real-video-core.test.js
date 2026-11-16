@@ -126,6 +126,25 @@ describe('real video-core gating — per-ad request', () => {
     expect(emitted.filter((t) => t === 'AD_QUARTILE')).toHaveLength(3);
   });
 
+  it('publishes adQuartile and adSkipped, not quartile and skipped', () => {
+    const { sm, content } = rig();
+    const events = [];
+    content.on('*', (e) => events.push(e));
+
+    sm.emit(SE.AD_BREAK_STARTED, {});
+    sm.emit(SE.STARTED, { getAd: () => ad('a1') });
+    sm.emit(SE.FIRST_QUARTILE, {});
+    sm.emit(SE.MIDPOINT, {});
+    sm.emit(SE.SKIPPED, {});
+
+    const quartiles = events.filter((e) => e.type === 'AD_QUARTILE');
+    expect(quartiles.map((e) => e.data.adQuartile)).toEqual([1, 2]);
+    expect(quartiles.every((e) => !('quartile' in e.data))).toBe(true);
+    const end = events.find((e) => e.type === 'AD_END');
+    expect(end.data.adSkipped).toBe(1);
+    expect('skipped' in end.data).toBe(false);
+  });
+
   it('emits no quartile for an ad whose start never arrived', () => {
     // Joining a live stream mid-break. Proven here against real gating rather
     // than against a no-op send.
