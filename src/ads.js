@@ -44,6 +44,14 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     return null
   }
 
+  getBitrate () {
+    try {
+      return this.player.getStats().streamBandwidth
+    } catch (e) {
+      return null
+    }
+  }
+
   getRenditionBitrate () {
     return this._currentBitrate
   }

@@ -40,6 +40,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.addEventListener(cast.framework.events.EventType.ERROR, event => { this.onError(event) })
     this.player.addEventListener(cast.framework.events.EventType.MEDIA_STATUS, event => { this.onMediaStatus(event) })
     this.player.addEventListener(cast.framework.events.EventType.MEDIA_FINISHED, event => { this.onMediaFinished(event) })
+    this.player.addEventListener(cast.framework.events.EventType.SHUTDOWN, event => { this.onShutdown(event) })
 
     if (!this.adsTracker) {
       this.setAdsTracker(new CAFAdsTracker(this.player))
@@ -61,6 +62,7 @@ export default class CAFTracker extends nrvideo.VideoTracker {
     this.player.removeEventListener(cast.framework.events.EventType.ERROR, this.onError);
     this.player.removeEventListener(cast.framework.events.EventType.MEDIA_STATUS, this.onMediaStatus);
     this.player.removeEventListener(cast.framework.events.EventType.MEDIA_FINISHED, this.onMediaFinished);
+    this.player.removeEventListener(cast.framework.events.EventType.SHUTDOWN, this.onShutdown);
   }
 
   reset () {
