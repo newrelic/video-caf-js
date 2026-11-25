@@ -48,6 +48,22 @@ export default class CAFAdsTracker extends nrvideo.VideoTracker {
     return this._currentBitrate
   }
 
+  getRenditionWidth () {
+    try {
+      return this.player.getStats().width
+    } catch (e) {
+      return null
+    }
+  }
+
+  getRenditionHeight () {
+    try {
+      return this.player.getStats().height
+    } catch (e) {
+      return null
+    }
+  }
+
   registerListeners() {
     if (!this.player) return;
 
