@@ -1,0 +1,4 @@
+/.github/ @newrelic/vertsol
+/webpack.config.js @newrelic/vertsol
+/package.json @newrelic/vertsol
+/package-lock.json @newrelic/vertsol
