@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   build-and-publish:
+    environment: npm-release
     uses: newrelic/video-core-js/.github/workflows/npm-publish.yml@620928f431a7f58f3fa1c5496fe079211929620a # master
     with:
       s3-path: 'media-agents/browser/caf'
