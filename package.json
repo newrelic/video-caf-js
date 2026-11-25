@@ -43,7 +43,8 @@
     "!test"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@newrelic/video-core": "5.1.1"
